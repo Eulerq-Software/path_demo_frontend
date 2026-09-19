@@ -1,1158 +1,725 @@
+// src/components/Mode.tsx
+
 import { useState } from "react";
-import { InputMode } from "../types/cvrp";
-import { createPortal } from "react-dom";
+import "../Styling/Mode.css";
+
 import {
-  IoInformationCircleOutline,
-  IoDocumentTextOutline,
-  IoCloudUploadOutline,
-  IoWarningOutline,
-} from "react-icons/io5";
+  RiFlashlightLine,
+  RiPlayCircleLine,
+  RiUploadCloud2Line,
+  RiRefreshLine,
+  RiRouteLine,
+  RiTeamLine,
+  RiMapPin2Line,
+  RiArrowDownSLine,
+  RiInformationLine,
+} from "react-icons/ri";
+
 import ExcelUploadModal from "./ExcelUploadModal";
 
-// ─────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────
+import {
+  parseLocationFile,
+  buildInstanceFromLocations,
+} from "../utils/excelParser";
+
+import type { GenerateParams, ExcelParseResult } from "../types/cvrp";
 
 type Props = {
-  inputMode: InputMode;
-  setInputMode: (mode: InputMode) => void;
-
-  numVehicles: number;
-  numPickups: number;
-  rawCapacity: string;
-  rawPickupLoad: string;
-  fieldErrors: Record<string, string>;
-
-  onNumVehiclesChange: (v: number) => void;
-  onNumPickupsChange: (v: number) => void;
-  onCapacityChange: (v: string) => void;
-  onPickupLoadChange: (v: string) => void;
-
-  onGenerate: () => void;
+  onGenerate: (params: GenerateParams) => void;
   onRunComparison: () => void;
-  onUpload: (files: File[]) => void;
+  onUploadParsed: (result: ExcelParseResult) => void;
+  hasGenerated: boolean;
+  isRunning: boolean;
 };
 
-// ─────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────
+type OptimizationMode = "distance" | "riders";
 
-const SHEET_TABS = [
-  "Sheet 1 — Parameters",
-  "Sheet 2 — Distance Matrix or Coordinates",
-] as const;
+/*
+ * The depot is fixed to central Bengaluru, matching the default
+ * map center in SolverMap.tsx. Depot selection is shown here for
+ * context but is not yet wired to GenerateParams — there is only
+ * one depot supported today.
+ */
+const DEPOT_LABEL = "Bangalore (Center)";
+const DEPOT_LAT = 12.9716;
+const DEPOT_LNG = 77.5946;
 
-const PARAM_ROWS: [string, string][] = [
-  ["num_vehicles", "3"],
-  ["num_pickups", "5"],
-  ["vehicle_capacity", "100"],
-  ["pickup_load", "20, 30, 15, 25, 10"],
-];
+const ORDERS_MIN = 50;
+const ORDERS_MAX = 1000;
+const RIDERS_MIN = 5;
+const RIDERS_MAX = 50;
+const TIME_MIN = 1;
+const TIME_MAX = 12;
 
-const MATRIX_ROWS = [
-  [0, 18, 25],
-  [14, 0, 9],
-  [7, 9, 0],
-];
+const CAPACITY_FLOOR = 1;
+const CAPACITY_CEIL = 100;
+const LOAD_FLOOR = 1;
+const LOAD_CEIL = 50;
 
-const COORD_ROWS: [string, string, boolean][] = [
-  ["12.9716", "77.5946", true],
-  ["12.9352", "77.6245", false],
-  ["13.0012", "77.5765", false],
-  ["12.9602", "77.6408", false],
-];
+type FieldErrors = {
+  orders?: string;
+  riders?: string;
+  availableTime?: string;
+  capacity?: string;
+  load?: string;
+};
 
-// ─────────────────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────────────────
+function randomInRange(min: number, max: number): number {
+  if (max <= min) return min;
+  return Math.round((min + Math.random() * (max - min)) * 10) / 10;
+}
 
-function XlIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
-      <rect width="13" height="13" rx="2.5" fill="#1d6f42" />
-      <path d="M3 4h7M3 6.5h7M3 9h5" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
+function buildRangeValues(count: number, min: number, max: number): number[] {
+  return Array.from({ length: Math.max(count, 0) }, () =>
+    randomInRange(min, max),
   );
 }
 
-// ── Spreadsheet wrapper ────────────────────────────────────────
-interface SpreadsheetProps {
-  label: string;
+/*
+ * ------------------------------------------------------------
+ * Dual-thumb range slider
+ * ------------------------------------------------------------
+ */
+
+type RangeSliderProps = {
+  min: number;
+  max: number;
+  valueMin: number;
+  valueMax: number;
+  step?: number;
+  onChange: (min: number, max: number) => void;
+};
+
+function RangeSlider({
+  min,
+  max,
+  valueMin,
+  valueMax,
+  step = 1,
+  onChange,
+}: RangeSliderProps) {
+  const span = max - min || 1;
+  const pctMin = ((valueMin - min) / span) * 100;
+  const pctMax = ((valueMax - min) / span) * 100;
+
+  return (
+    <div className="range-slider">
+      <div className="range-slider-track">
+        <div
+          className="range-slider-fill"
+          style={{
+            left: `${pctMin}%`,
+            width: `${Math.max(pctMax - pctMin, 0)}%`,
+          }}
+        />
+      </div>
+      <input
+        type="range"
+        className="range-slider-input range-slider-input--min"
+        min={min}
+        max={max}
+        step={step}
+        value={valueMin}
+        onChange={(e) => {
+          const next = Math.min(Number(e.target.value), valueMax - step);
+          onChange(next, valueMax);
+        }}
+      />
+      <input
+        type="range"
+        className="range-slider-input range-slider-input--max"
+        min={min}
+        max={max}
+        step={step}
+        value={valueMax}
+        onChange={(e) => {
+          const next = Math.max(Number(e.target.value), valueMin + step);
+          onChange(valueMin, next);
+        }}
+      />
+    </div>
+  );
+}
+
+/*
+ * ------------------------------------------------------------
+ * Collapsible section wrapper
+ * ------------------------------------------------------------
+ */
+
+function CollapsibleSection({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
-}
-
-function Spreadsheet({ label, children }: SpreadsheetProps) {
+}) {
   return (
-    <div className="xl-wrap">
-      <div className="xl-topbar">
-        <XlIcon />
-        <span>{label}</span>
-      </div>
-      <div className="xl-scroll">{children}</div>
-    </div>
-  );
-}
-
-// ── Rule callout ───────────────────────────────────────────────
-interface RuleProps {
-  icon?: string;
-  children: React.ReactNode;
-}
-
-function Rule({ icon = "▸", children }: RuleProps) {
-  return (
-    <div className="rule-row">
-      <span className="rule-icon">{icon}</span>
-      <span>{children}</span>
-    </div>
-  );
-}
-
-// ── Section divider with label ─────────────────────────────────
-function OrDivider() {
-  return (
-    <div className="or-divider">
-      <div className="or-line" />
-      <span className="or-label">OR</span>
-      <div className="or-line" />
-    </div>
-  );
-}
-
-// ── Sheet 1 preview ────────────────────────────────────────────
-function Sheet1Preview() {
-  return (
-    <>
-      <p className="info-description">
-        This sheet holds all key settings for your problem. Each row is one
-        parameter — put the <strong>name</strong> in column A and its{" "}
-        <strong>value</strong> in column B.
-      </p>
-
-      <Spreadsheet label="Sheet1 — Parameters">
-        <table className="xl-table">
-          <thead>
-            <tr>
-              <th className="xl-row-num-head" />
-              <th>A — Parameter</th>
-              <th>B — Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PARAM_ROWS.map(([key, val], i) => (
-              <tr key={key}>
-                <td className="xl-row-num">{i + 1}</td>
-                <td className="xl-key">{key}</td>
-                <td className="xl-val">{val}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Spreadsheet>
-
-      <div className="info-note">
-        <IoWarningOutline className="info-note-icon" />
-        <span>
-          For <strong>pickup_load</strong>, enter one value per pickup,
-          separated by commas. The count must match <strong>num_pickups</strong>.
-        </span>
-      </div>
-    </>
-  );
-}
-
-// ── Sheet 2 preview ────────────────────────────────────────────
-function Sheet2Preview() {
-  return (
-    <>
-      {/* ── Distance Matrix section ── */}
-      <div className="preview-section">
-        <div className="section-label">
-          <span className="section-badge">Option A</span>
-          <span className="section-title">Distance Matrix</span>
-        </div>
-        <p className="info-description">
-          An N×N grid where <strong>N = 1 + num_pickups</strong>. Row and
-          column headers are Node_0, Node_1, … The first node (Node_0) is
-          always the <strong>depot</strong>. All diagonal cells must be{" "}
-          <strong>0</strong>.
-        </p>
-
-        <div className="rule-group">
-          <Rule>Matrix must be <strong>N×N</strong> (square)</Rule>
-          <Rule>Diagonal cells must all be <strong>0</strong></Rule>
-          <Rule><strong>Node_0</strong> (row 1 / col A) represents the depot</Rule>
-        </div>
-
-        <Spreadsheet label="Sheet2 — Distance Matrix">
-          <table className="xl-table xl-matrix">
-            <thead>
-              <tr>
-                <th className="xl-row-num-head" />
-                <th>A </th>
-                <th>B</th>
-                <th>C</th>
-              </tr>
-            </thead>
-            <tbody>
-              {MATRIX_ROWS.map((row, ri) => (
-                <tr key={ri}>
-                  <td className="xl-row-num">{ri + 1}</td>
-                  {row.map((val, ci) => (
-                    <td key={ci} className={ri === ci ? "xl-diag" : "xl-num"}>
-                      {val}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Spreadsheet>
-      </div>
-
-      <OrDivider />
-
-      {/* ── Coordinates section ── */}
-      <div className="preview-section">
-        <div className="section-label">
-          <span className="section-badge section-badge-alt">Option B</span>
-          <span className="section-title">GPS Coordinates</span>
-        </div>
-        <p className="info-description">
-          One row per node with its GPS coordinates. Distances are computed
-          automatically — no manual distance matrix needed.{" "}
-          <strong>Node_0 must always be the first row</strong> (the depot).
-        </p>
-
-        <div className="rule-group">
-          <Rule>First row is always the depot (Node_0)</Rule>
-          <Rule>Columns: <strong>A = latitude</strong>, <strong>B = longitude</strong></Rule>
-          <Rule>Decimal degrees format (e.g. 12.9716, 77.5946)</Rule>
-        </div>
-
-        <Spreadsheet label="Sheet2 — Coordinates">
-          <table className="xl-table">
-            <thead>
-              <tr>
-                <th className="xl-row-num-head" />
-                <th>A — Latitude</th>
-                <th>B — Longitude</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COORD_ROWS.map(([lat, lng, isDepot], i) => (
-                <tr key={i} className={isDepot ? "xl-depot-row" : ""}>
-                  <td className="xl-row-num">{i + 1}</td>
-                  <td className="xl-num">
-                    {lat}
-
-                  </td>
-                  <td className="xl-num">{lng}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Spreadsheet>
-      </div>
-    </>
-  );
-}
-
-// ── Info Modal ─────────────────────────────────────────────────
-interface InfoModalProps {
-  onClose: () => void;
-}
-
-function InfoModal({ onClose }: InfoModalProps) {
-  const [activeSheet, setActiveSheet] = useState(0);
-
-  return createPortal(
-    <div
-      className="info-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Excel Upload Format Guide"
-    >
-      <div className="info-modal" onClick={(e) => e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="info-header">
-          <div className="info-header-icon" aria-hidden>
-            <IoDocumentTextOutline />
-          </div>
-          <div className="info-header-text">
-            <h3>Excel Upload Format</h3>
-            <p>Required structure for CVRP dataset — 1 file with 2 sheets</p>
-          </div>
-          <button
-            className="info-close-btn"
-            onClick={onClose}
-            aria-label="Close format guide"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Sheet Tabs */}
-        <div className="info-sheet-tabs" role="tablist">
-          {SHEET_TABS.map((label, i) => (
-            <button
-              key={i}
-              role="tab"
-              aria-selected={activeSheet === i}
-              className={`info-sheet-tab ${activeSheet === i ? "active" : ""}`}
-              onClick={() => setActiveSheet(i)}
-            >
-              <span className="sheet-tab-dot" aria-hidden />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Body */}
-        <div className="info-content" role="tabpanel">
-          {activeSheet === 0 && <Sheet1Preview />}
-          {activeSheet === 1 && <Sheet2Preview />}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Generate Mode fields
-// ─────────────────────────────────────────────────────────────
-
-interface GenerateModeProps {
-  numVehicles: number;
-  numPickups: number;
-  rawCapacity: string;
-  rawPickupLoad: string;
-  fieldErrors: Record<string, string>;
-  onNumVehiclesChange: (v: number) => void;
-  onNumPickupsChange: (v: number) => void;
-  onCapacityChange: (v: string) => void;
-  onPickupLoadChange: (v: string) => void;
-  onGenerate: () => void;
-  onRunComparison: () => void;
-}
-
-function GenerateMode({
-  numVehicles,
-  numPickups,
-  rawCapacity,
-  rawPickupLoad,
-  fieldErrors,
-  onNumVehiclesChange,
-  onNumPickupsChange,
-  onCapacityChange,
-  onPickupLoadChange,
-  onGenerate,
-  onRunComparison,
-}: GenerateModeProps) {
-  return (
-    <>
-      <div className="field-group">
-        <label className="field-label" htmlFor="field-vehicles">Vehicles</label>
-        <input
-          id="field-vehicles"
-          type="number"
-          min={1}
-          max={20}
-          value={numVehicles}
-          onChange={(e) =>
-            onNumVehiclesChange(Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1)))
-          }
-          className="field-input"
-          style={{ width: 72 }}
+    <div className="mode-collapsible">
+      <button
+        type="button"
+        className="mode-collapsible-header"
+        onClick={onToggle}
+      >
+        <span>{title}</span>
+        <RiArrowDownSLine
+          className={`mode-collapsible-chevron ${open ? "is-open" : ""}`}
         />
-      </div>
-
-      <div className="field-group">
-        <label className="field-label" htmlFor="field-pickups">Pickups</label>
-        <input
-          id="field-pickups"
-          type="number"
-          min={1}
-          max={30}
-          value={numPickups}
-          onChange={(e) =>
-            onNumPickupsChange(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 1)))
-          }
-          className="field-input"
-          style={{ width: 72 }}
-        />
-      </div>
-
-      <div className="field-group">
-        <label className="field-label" htmlFor="field-capacity">Vehicle Capacity</label>
-        <input
-          id="field-capacity"
-          type="text"
-          placeholder="10  or  10,12,8"
-          value={rawCapacity}
-          onChange={(e) => onCapacityChange(e.target.value)}
-          className={`field-input ${fieldErrors["vehicle_capacity"] ? "has-error" : ""}`}
-          style={{ width: 160 }}
-        />
-        {fieldErrors["vehicle_capacity"] && (
-          <span className="field-error" role="alert">{fieldErrors["vehicle_capacity"]}</span>
-        )}
-      </div>
-
-      <div className="field-group">
-        <label className="field-label" htmlFor="field-load">Pickup Load</label>
-        <input
-          id="field-load"
-          type="text"
-          placeholder="2,3,1,4,2,1,3,2"
-          value={rawPickupLoad}
-          onChange={(e) => onPickupLoadChange(e.target.value)}
-          className={`field-input ${fieldErrors["pickup_load"] ? "has-error" : ""}`}
-          style={{ width: 220 }}
-        />
-        {fieldErrors["pickup_load"] && (
-          <span className="field-error" role="alert">{fieldErrors["pickup_load"]}</span>
-        )}
-      </div>
-
-      <div className="ctrl-sep" />
-
-      <div className="action-buttons">
-        <button className="btn-demo btn-generate" onClick={onGenerate}>
-          ⚡ Generate
-        </button>
-        <button className="btn-demo btn-solve" onClick={onRunComparison}>
-          ▶ Run Comparison
-        </button>
-      </div>
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Upload Mode panel
-// ─────────────────────────────────────────────────────────────
-
-interface UploadModeProps {
-  onInfoOpen: () => void;
-  onModalOpen: () => void;
-  onRunComparison: () => void;
-}
-
-function UploadMode({ onInfoOpen, onModalOpen, onRunComparison }: UploadModeProps) {
-  return (
-    <div className="upload-mode-container">
-      <div className="upload-actions">
-        <button
-          className="info-btn"
-          onClick={onInfoOpen}
-          aria-label="View Excel format guide"
-          title="View Excel format guide"
-        >
-          <IoInformationCircleOutline size={16} aria-hidden />
-        </button>
-        <button className="btn-demo btn-upload" onClick={onModalOpen}>
-          <IoCloudUploadOutline size={15} aria-hidden />
-          Upload Excel
-        </button>
-      </div>
-      <button className="btn-demo btn-solve" onClick={onRunComparison}>
-        ▶ Run Comparison
       </button>
+      {open && <div className="mode-collapsible-body">{children}</div>}
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────
-// Root component
-// ─────────────────────────────────────────────────────────────
 
 export default function Mode({
-  inputMode,
-  setInputMode,
-  numVehicles,
-  numPickups,
-  rawCapacity,
-  rawPickupLoad,
-  fieldErrors,
-  onNumVehiclesChange,
-  onNumPickupsChange,
-  onCapacityChange,
-  onPickupLoadChange,
   onGenerate,
   onRunComparison,
-  onUpload,
+  onUploadParsed,
+  hasGenerated,
+  isRunning,
 }: Props) {
-  const [showUploadInfo, setShowUploadInfo] = useState(false);
-  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+
+  const [optimizationMode, setOptimizationMode] =
+    useState<OptimizationMode>("distance");
+
+  const [numOrders, setNumOrders] = useState(150);
+  const [numRiders, setNumRiders] = useState(25);
+  const [availableTimeHours, setAvailableTimeHours] = useState(4);
+  const [trafficConsideration, setTrafficConsideration] = useState(true);
+  const [capacityMin, setCapacityMin] = useState(30);
+  const [capacityMax, setCapacityMax] = useState(50);
+  const [loadMin, setLoadMin] = useState(1);
+  const [loadMax, setLoadMax] = useState(10);
+  const [distanceType, setDistanceType] = useState<"osrm" | "haversine">(
+    "osrm",
+  );
+
+  const [riderSettingsOpen, setRiderSettingsOpen] = useState(true);
+  const [orderSettingsOpen, setOrderSettingsOpen] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(true);
+
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  const isRidersMode = optimizationMode === "riders";
+
+  const averageCapacity = (capacityMin + capacityMax) / 2;
+  const averageLoad = (loadMin + loadMax) / 2;
+
+  /*
+   * ------------------------------------------------------------
+   * Validation
+   * ------------------------------------------------------------
+   */
+
+  function validate(): FieldErrors {
+    const next: FieldErrors = {};
+
+    if (numOrders < ORDERS_MIN || numOrders > ORDERS_MAX) {
+      next.orders = `Enter a value between ${ORDERS_MIN} and ${ORDERS_MAX}.`;
+    }
+
+    if (isRidersMode) {
+      if (availableTimeHours < TIME_MIN || availableTimeHours > TIME_MAX) {
+        next.availableTime = `Enter a value between ${TIME_MIN} and ${TIME_MAX}.`;
+      }
+    } else {
+      if (numRiders < RIDERS_MIN || numRiders > RIDERS_MAX) {
+        next.riders = `Enter a value between ${RIDERS_MIN} and ${RIDERS_MAX}.`;
+      }
+    }
+
+    if (!isRidersMode && (capacityMin <= 0 || capacityMax < capacityMin)) {
+      next.capacity = "Capacity range is invalid.";
+    }
+    if (loadMin <= 0 || loadMax < loadMin) {
+      next.load = "Weight range is invalid.";
+    }
+
+    return next;
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Generate
+   * ------------------------------------------------------------
+   */
+
+  function handleGenerate() {
+    if (isRunning) return;
+
+    const fieldErrors = validate();
+    setErrors(fieldErrors);
+    if (Object.keys(fieldErrors).length > 0) return;
+
+    const effectiveNumRiders = isRidersMode ? RIDERS_MAX : numRiders;
+
+    const params: GenerateParams = {
+      numVehicles: effectiveNumRiders,
+      numPickups: numOrders,
+      vehicleCapacity: buildRangeValues(
+        effectiveNumRiders,
+        capacityMin,
+        capacityMax,
+      ),
+      pickupLoad: buildRangeValues(numOrders, loadMin, loadMax),
+    };
+
+    onGenerate(params);
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Upload
+   * ------------------------------------------------------------
+   */
+
+  async function handleFileUpload(file: File) {
+    if (isParsing || isRunning) return;
+
+    setIsParsing(true);
+
+    try {
+      const { depot, locations, warnings, fatalError } =
+        await parseLocationFile(file);
+
+      /*
+       * Fatal parser error
+       */
+      if (fatalError) {
+        console.error("[Mode] Upload error:", fatalError);
+        setUploadModalOpen(false);
+        return;
+      }
+
+      /*
+       * No valid locations
+       */
+      if (!depot || locations.length === 0) {
+        console.error("[Mode] No valid locations found.", warnings);
+        setUploadModalOpen(false);
+        return;
+      }
+
+      const { nodes, instance } = buildInstanceFromLocations(
+        locations,
+        numRiders,
+        averageCapacity,
+        depot,
+      );
+
+      const result: ExcelParseResult = {
+        nodes,
+        instance,
+      };
+
+      /*
+       * Pass the parsed instance to CompareDashboard.
+       */
+      onUploadParsed(result);
+
+      setUploadedFile(file);
+      setUploadModalOpen(false);
+
+      if (warnings.length > 0) {
+        console.warn("[Mode] Upload warnings:", warnings);
+      }
+    } catch (error) {
+      console.error("[Mode] Failed to parse uploaded file:", error);
+      setUploadModalOpen(false);
+    } finally {
+      setIsParsing(false);
+    }
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Run Comparison
+   * ------------------------------------------------------------
+   */
+
+  function handleRunComparison() {
+    if (isRunning || !hasGenerated) return;
+
+    onRunComparison();
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * Render
+   * ------------------------------------------------------------
+   */
 
   return (
     <>
-      {/* ─── Mode Switch ───────────────────── */}
-      <div className="mode-switch-wrapper">
-        <div className="mode-tabs" role="tablist">
+      <ExcelUploadModal
+        isOpen={uploadModalOpen}
+        onClose={() => {
+          if (!isParsing && !isRunning) {
+            setUploadModalOpen(false);
+          }
+        }}
+        onUpload={handleFileUpload}
+        isParsing={isParsing}
+      />
+
+       <aside className="mode-sidebar">
+        {/* <div className="mode-header">
+         <span className="mode-header-title">Inputs &amp; Configuration</span> 
           <button
-            role="tab"
-            aria-selected={inputMode === "generate"}
-            className={`mode-tab ${inputMode === "generate" ? "active" : ""}`}
-            onClick={() => setInputMode("generate")}
+            type="button"
+            className="mode-header-action"
+            onClick={handleGenerate}
+            disabled={isRunning}
           >
-            Generate Mode
+            <RiRefreshLine className="mode-header-action-icon" />
+            <span>Generate New Instance</span>
           </button>
-          <button
-            role="tab"
-            aria-selected={inputMode === "upload"}
-            className={`mode-tab ${inputMode === "upload" ? "active" : ""}`}
-            onClick={() => setInputMode("upload")}
+        </div> */}
+
+        <div className="mode-body">
+          <div className="mode-field-group">
+            <span className="mode-section-label">Optimization Mode</span>
+            <div className="mode-optimization-toggle">
+              <button
+                type="button"
+                className={`mode-optimization-card ${
+                  optimizationMode === "distance"
+                    ? "mode-optimization-card--active"
+                    : ""
+                }`}
+                onClick={() => setOptimizationMode("distance")}
+              >
+                <span className="mode-optimization-index">1</span>
+                <RiRouteLine className="mode-optimization-icon" />
+                <span className="mode-optimization-title">
+                  Route Optimization
+                </span>
+                <span className="mode-optimization-subtitle">
+                  Minimize Total Distance
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className={`mode-optimization-card ${
+                  optimizationMode === "riders"
+                    ? "mode-optimization-card--active"
+                    : ""
+                }`}
+                onClick={() => setOptimizationMode("riders")}
+              >
+                <span className="mode-optimization-index">2</span>
+                <RiTeamLine className="mode-optimization-icon" />
+                <span className="mode-optimization-title">
+                  Minimum Riders
+                </span>
+                <span className="mode-optimization-subtitle">
+                  Minimize Number of Riders
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mode-field-group">
+            <span className="mode-section-label">Instance Settings</span>
+
+            <div className="field-group">
+              <div className="mode-field-row">
+                <span className="field-label">Number of Orders</span>
+                <span className="mode-field-hint">
+                  ({ORDERS_MIN} - {ORDERS_MAX})
+                </span>
+              </div>
+              <input
+                type="number"
+                className={`field-input ${errors.orders ? "has-error" : ""}`}
+                value={numOrders}
+                min={ORDERS_MIN}
+                max={ORDERS_MAX}
+                onChange={(e) => setNumOrders(Number(e.target.value) || 0)}
+              />
+              {errors.orders && (
+                <span className="field-error">{errors.orders}</span>
+              )}
+            </div>
+
+            {isRidersMode ? (
+              <div className="field-group">
+                <div className="mode-field-row">
+                  <span className="field-label">Available Time</span>
+                  <span className="mode-field-hint">
+                    ({TIME_MIN} - {TIME_MAX} hours)
+                  </span>
+                </div>
+                <div className="mode-time-row">
+                  <input
+                    type="number"
+                    className={`field-input ${
+                      errors.availableTime ? "has-error" : ""
+                    }`}
+                    value={availableTimeHours}
+                    min={TIME_MIN}
+                    max={TIME_MAX}
+                    onChange={(e) =>
+                      setAvailableTimeHours(Number(e.target.value) || 0)
+                    }
+                  />
+                  <select
+                    className="field-input mode-select mode-time-unit"
+                    value="hours"
+                    disabled
+                  >
+                    <option value="hours">Hours</option>
+                  </select>
+                </div>
+                {errors.availableTime && (
+                  <span className="field-error">{errors.availableTime}</span>
+                )}
+              </div>
+            ) : (
+              <div className="field-group">
+                <div className="mode-field-row">
+                  <span className="field-label">Number of Riders</span>
+                  <span className="mode-field-hint">
+                    ({RIDERS_MIN} - {RIDERS_MAX})
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  className={`field-input ${errors.riders ? "has-error" : ""}`}
+                  value={numRiders}
+                  min={RIDERS_MIN}
+                  max={RIDERS_MAX}
+                  onChange={(e) => setNumRiders(Number(e.target.value) || 0)}
+                />
+                {errors.riders && (
+                  <span className="field-error">{errors.riders}</span>
+                )}
+              </div>
+            )}
+
+            <div className="field-group">
+              <span className="field-label">Depot Location</span>
+              <div className="mode-select-wrap">
+                <RiMapPin2Line className="mode-select-icon" />
+                <select className="field-input mode-select" value={0} disabled>
+                  <option value={0}>{DEPOT_LABEL}</option>
+                </select>
+              </div>
+              <span className="mode-field-subtext">
+                {DEPOT_LAT}, {DEPOT_LNG}
+              </span>
+            </div>
+
+            {isRidersMode && (
+              <div className="mode-info-banner">
+                <RiInformationLine className="mode-info-banner-icon" />
+                <span>
+                  The system will determine the minimum number of riders
+                  required to complete all deliveries within the available
+                  time.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!isRidersMode && (
+            <CollapsibleSection
+              title="Rider Settings"
+              open={riderSettingsOpen}
+              onToggle={() => setRiderSettingsOpen((v) => !v)}
+            >
+              <span className="field-label">Capacity Range (kg)</span>
+              <div className="mode-range-row">
+                <input
+                  type="number"
+                  className="field-input mode-range-input"
+                  value={capacityMin}
+                  min={CAPACITY_FLOOR}
+                  max={capacityMax}
+                  onChange={(e) =>
+                    setCapacityMin(Number(e.target.value) || CAPACITY_FLOOR)
+                  }
+                />
+                <RangeSlider
+                  min={CAPACITY_FLOOR}
+                  max={CAPACITY_CEIL}
+                  valueMin={capacityMin}
+                  valueMax={capacityMax}
+                  onChange={(nextMin, nextMax) => {
+                    setCapacityMin(nextMin);
+                    setCapacityMax(nextMax);
+                  }}
+                />
+                <input
+                  type="number"
+                  className="field-input mode-range-input"
+                  value={capacityMax}
+                  min={capacityMin}
+                  max={CAPACITY_CEIL}
+                  onChange={(e) =>
+                    setCapacityMax(Number(e.target.value) || CAPACITY_CEIL)
+                  }
+                />
+              </div>
+              {errors.capacity && (
+                <span className="field-error">{errors.capacity}</span>
+              )}
+              <span className="mode-field-subtext">
+                Average Capacity: {averageCapacity.toFixed(1)} kg
+              </span>
+            </CollapsibleSection>
+          )}
+
+          <CollapsibleSection
+            title="Order Settings"
+            open={orderSettingsOpen}
+            onToggle={() => setOrderSettingsOpen((v) => !v)}
           >
-            Upload Mode
+            <span className="field-label">Order Weight Range (kg)</span>
+            <div className="mode-range-row">
+              <input
+                type="number"
+                className="field-input mode-range-input"
+                value={loadMin}
+                min={LOAD_FLOOR}
+                max={loadMax}
+                onChange={(e) =>
+                  setLoadMin(Number(e.target.value) || LOAD_FLOOR)
+                }
+              />
+              <RangeSlider
+                min={LOAD_FLOOR}
+                max={LOAD_CEIL}
+                valueMin={loadMin}
+                valueMax={loadMax}
+                onChange={(nextMin, nextMax) => {
+                  setLoadMin(nextMin);
+                  setLoadMax(nextMax);
+                }}
+              />
+              <input
+                type="number"
+                className="field-input mode-range-input"
+                value={loadMax}
+                min={loadMin}
+                max={LOAD_CEIL}
+                onChange={(e) =>
+                  setLoadMax(Number(e.target.value) || LOAD_CEIL)
+                }
+              />
+            </div>
+            {errors.load && (
+              <span className="field-error">{errors.load}</span>
+            )}
+            <span className="mode-field-subtext">
+              Average Weight: {averageLoad.toFixed(1)} kg
+            </span>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Advanced Settings"
+            open={advancedOpen}
+            onToggle={() => setAdvancedOpen((v) => !v)}
+          >
+            <div className="mode-field-row">
+              <span className="field-label">Distance Type</span>
+              <RiInformationLine
+                className="mode-info-icon"
+                title="Road Distance uses real routing via OSRM. Straight-Line uses haversine distance."
+              />
+            </div>
+            <select
+              className="field-input mode-select"
+              value={distanceType}
+              onChange={(e) =>
+                setDistanceType(e.target.value as "osrm" | "haversine")
+              }
+            >
+              <option value="osrm">Road Distance (OSRM)</option>
+              <option value="haversine">Straight-Line (Haversine)</option>
+            </select>
+
+            {isRidersMode && (
+              <div className="mode-field-row mode-toggle-row">
+                <div className="mode-field-row">
+                  <span className="field-label">Traffic Consideration</span>
+                  <RiInformationLine
+                    className="mode-info-icon"
+                    title="Factor live/typical traffic conditions into travel time estimates."
+                  />
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={trafficConsideration}
+                  className={`mode-toggle-switch ${
+                    trafficConsideration ? "mode-toggle-switch--on" : ""
+                  }`}
+                  onClick={() => setTrafficConsideration((v) => !v)}
+                >
+                  <span className="mode-toggle-thumb" />
+                </button>
+              </div>
+            )}
+          </CollapsibleSection>
+        </div>
+
+        <div className="mode-actions">
+          {/* Upload */}
+          {/* <button
+            type="button"
+            className={`btn-action btn-upload${
+              uploadedFile ? " btn-upload--active" : ""
+            }`}
+            onClick={() => setUploadModalOpen(true)}
+            disabled={isRunning || isParsing}
+            title={uploadedFile ? uploadedFile.name : "Upload an Excel or CSV file"}
+          > */}
+            {/* <RiUploadCloud2Line className="btn-icon" />
+            <span>
+              {isParsing
+                ? "Parsing..."
+                : uploadedFile
+                  ? "Uploaded"
+                  : "Upload Excel / CSV"}
+            </span>
+          </button> */}
+
+          {/* Generate */}
+          <button
+            type="button"
+            className="btn-action btn-generate-instance"
+            onClick={handleGenerate}
+            disabled={isRunning}
+          >
+            <RiFlashlightLine className="btn-icon" />
+            <span>Generate Instance</span>
+          </button>
+
+          {/* Run Comparison */}
+          <button
+            type="button"
+            className={`btn-run-comparison${
+              !hasGenerated || isRunning ? " btn-run--disabled" : ""
+            }`}
+            onClick={handleRunComparison}
+            disabled={!hasGenerated || isRunning}
+          >
+            <RiPlayCircleLine className="run-icon" />
+            <span>
+              {isRunning ? "Running Comparison..." : "Optimize (Compare Solvers)"}
+            </span>
           </button>
         </div>
-      </div>
-
-      {/* ─── Controls Bar ───────────────────── */}
-      <div className="controls">
-        {inputMode === "generate" && (
-          <GenerateMode
-            numVehicles={numVehicles}
-            numPickups={numPickups}
-            rawCapacity={rawCapacity}
-            rawPickupLoad={rawPickupLoad}
-            fieldErrors={fieldErrors}
-            onNumVehiclesChange={onNumVehiclesChange}
-            onNumPickupsChange={onNumPickupsChange}
-            onCapacityChange={onCapacityChange}
-            onPickupLoadChange={onPickupLoadChange}
-            onGenerate={onGenerate}
-            onRunComparison={onRunComparison}
-          />
-        )}
-
-        {inputMode === "upload" && (
-          <UploadMode
-            onInfoOpen={() => setShowUploadInfo(true)}
-            onModalOpen={() => setShowExcelModal(true)}
-            onRunComparison={onRunComparison}
-          />
-        )}
-      </div>
-
-      {/* ─── Excel Upload Modal ───────────────────── */}
-      {showExcelModal && (
-        <ExcelUploadModal
-          isOpen={showExcelModal}
-          onClose={() => setShowExcelModal(false)}
-          onUpload={onUpload}
-        />
-      )}
-
-      {/* ─── Info Modal ───────────────────── */}
-      {showUploadInfo && (
-        <InfoModal onClose={() => setShowUploadInfo(false)} />
-      )}
-
-      {/* ─── Styles ───────────────────── */}
-      <style>{`
-
-        /* ── Mode switch ──────────────────────────────── */
-        .mode-switch-wrapper {
-          width: 100%;
-          display: flex;
-          justify-content: center;
-          margin-top: 32px;
-          margin-bottom: 18px;
-        }
-        .mode-tabs {
-          display: flex;
-          gap: 8px;
-          padding: 8px;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 16px;
-        }
-        .mode-tab {
-          min-width: 160px;
-          height: 48px;
-          border-radius: 12px;
-          border: 1px solid var(--border2);
-          background: transparent;
-          color: var(--text3);
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          font-family: inherit;
-          font-size: 13px;
-        }
-        .mode-tab:hover:not(.active) {
-          color: var(--text2);
-          border-color: var(--border);
-          background: rgba(255,255,255,0.03);
-        }
-        .mode-tab.active {
-          background: linear-gradient(135deg, #10e0a1, #06c167);
-          color: #04130d;
-          border-color: transparent;
-          box-shadow: 0 2px 12px rgba(16,224,161,0.25);
-        }
-
-        /* ── Controls bar ─────────────────────────────── */
-        .controls {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 14px;
-          padding: 10px 16px;
-          width: fit-content;
-          margin: 0 auto 20px;
-        }
-
-        /* ── Shared button base ───────────────────────── */
-        .btn-demo {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 7px;
-          min-height: 42px;
-          padding: 0 20px;
-          border-radius: 10px;
-          border: none;
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-          white-space: nowrap;
-          font-family: inherit;
-        }
-        .btn-generate {
-          background: rgba(16,224,161,0.1);
-          color: var(--accent);
-          border: 1px solid rgba(16,224,161,0.25);
-        }
-        .btn-generate:hover {
-          background: rgba(16,224,161,0.18);
-          border-color: rgba(16,224,161,0.45);
-          box-shadow: 0 0 16px rgba(16,224,161,0.15);
-        }
-        .btn-solve {
-          background: linear-gradient(135deg, #10e0a1, #06c167);
-          color: #04130d;
-          border: none;
-        }
-        .btn-solve:hover {
-          filter: brightness(1.1);
-          box-shadow: 0 4px 18px rgba(16,224,161,0.3);
-          transform: translateY(-1px);
-        }
-        .btn-upload {
-          background: rgba(255,255,255,0.05);
-          color: var(--text2);
-          border: 1px solid var(--border2);
-        }
-        .btn-upload:hover {
-          background: rgba(255,255,255,0.09);
-          color: var(--text);
-          border-color: var(--border);
-        }
-
-        /* ── Upload mode layout ───────────────────────── */
-        .upload-mode-container {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          width: 100%;
-        }
-        .upload-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .info-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          border: 1px solid var(--border2);
-          background: rgba(16,224,161,0.05);
-          color: var(--text2);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .info-btn:hover {
-          background: rgba(16,224,161,0.15);
-          border-color: var(--accent);
-          color: var(--accent);
-          box-shadow: 0 0 8px rgba(16,224,161,0.2);
-          transform: scale(1.08);
-        }
-
-        /* ── Field group (generate mode) ──────────────── */
-        .field-group {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-        .field-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text3);
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          user-select: none;
-        }
-        .field-input {
-          height: 36px;
-          padding: 0 10px;
-          border-radius: 8px;
-          border: 1px solid var(--border2);
-          background: rgba(255,255,255,0.03);
-          color: var(--text);
-          font-size: 13px;
-          font-family: inherit;
-          outline: none;
-          transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .field-input:focus {
-          border-color: rgba(16,224,161,0.4);
-          box-shadow: 0 0 0 3px rgba(16,224,161,0.08);
-        }
-        .field-input.has-error {
-          border-color: rgba(239,68,68,0.5);
-        }
-        .field-error {
-          font-size: 10.5px;
-          color: #f87171;
-          margin-top: 2px;
-        }
-        .ctrl-sep {
-          width: 1px;
-          height: 42px;
-          background: var(--border);
-          align-self: center;
-          flex-shrink: 0;
-          margin: 0 4px;
-        }
-        .action-buttons {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          align-self: flex-end;
-          padding-bottom: 2px;
-        }
-
-        /* ────────────────────────────────────────────── */
-        /* ── Info Modal ──────────────────────────────── */
-        /* ────────────────────────────────────────────── */
-
-        .info-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.75);
-          backdrop-filter: blur(8px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          padding: 24px;
-          animation: fadeIn 0.2s ease both;
-        }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes modalPop {
-          from { opacity: 0; transform: scale(0.96) translateY(8px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0);   }
-        }
-
-        .info-modal {
-          width: 660px;
-          max-width: 92vw;
-          /* Fixed height — modal never resizes when switching tabs */
-          height: 680px;
-          max-height: 90vh;
-          background: #081225;
-          border: 1px solid #1b2a47;
-          border-radius: 20px;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          box-shadow:
-            0 0 0 1px rgba(16,224,161,0.06),
-            0 24px 64px rgba(0,0,0,0.55),
-            0 0 40px rgba(16,224,161,0.05);
-          animation: modalPop 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
-        }
-
-        /* Header */
-        .info-header {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 20px 22px 18px;
-          border-bottom: 1px solid #13213a;
-          background: rgba(16,224,161,0.03);
-          flex-shrink: 0;
-        }
-        .info-header-icon {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
-          background: rgba(16,224,161,0.12);
-          border: 1px solid rgba(16,224,161,0.22);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          color: var(--accent);
-        }
-        .info-header-icon svg { width: 18px; height: 18px; }
-        .info-header-text { flex: 1; }
-        .info-header-text h3 {
-          font-size: 16px;
-          font-weight: 800;
-          color: var(--text);
-          margin: 0 0 3px;
-          letter-spacing: -0.01em;
-        }
-        .info-header-text p {
-          font-size: 11px;
-          color: var(--text3);
-          font-family: 'JetBrains Mono', monospace;
-          letter-spacing: 0.02em;
-          margin: 0;
-        }
-        .info-close-btn {
-          width: 30px;
-          height: 30px;
-          border-radius: 8px;
-          border: 1px solid var(--border2);
-          background: rgba(255,255,255,0.03);
-          color: var(--text2);
-          font-size: 14px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.15s ease;
-          flex-shrink: 0;
-          font-family: inherit;
-        }
-        .info-close-btn:hover {
-          background: rgba(255,255,255,0.08);
-          color: var(--text);
-        }
-
-        /* Sheet tabs */
-        .info-sheet-tabs {
-          display: flex;
-          gap: 0;
-          background: rgba(16,224,161,0.02);
-          border-bottom: 1px solid #13213a;
-          padding: 0 22px;
-          flex-shrink: 0;
-          overflow-x: auto;
-        }
-        .info-sheet-tabs::-webkit-scrollbar { display: none; }
-        .info-sheet-tab {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 10px 14px;
-          font-size: 11.5px;
-          color: var(--text3);
-          background: transparent;
-          border: none;
-          border-bottom: 2px solid transparent;
-          margin-bottom: -1px;
-          cursor: pointer;
-          white-space: nowrap;
-          transition: color 0.15s ease;
-          font-family: inherit;
-        }
-        .info-sheet-tab:hover { color: var(--text2); }
-        .info-sheet-tab.active {
-          color: var(--accent);
-          border-bottom-color: var(--accent);
-          font-weight: 700;
-        }
-        .sheet-tab-dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-          background: #1e3a2e;
-          flex-shrink: 0;
-          transition: background 0.15s ease;
-        }
-        .info-sheet-tab.active .sheet-tab-dot { background: var(--accent); }
-
-        /* Modal body — fills remaining height, scrolls internally */
-        .info-content {
-          padding: 24px 24px 28px;
-          overflow-y: auto;
-          overflow-x: hidden;
-          flex: 1;
-          min-height: 0;        /* critical: lets flexbox child shrink below content size */
-          display: flex;
-          flex-direction: column;
-          gap: 0;
-          scroll-behavior: smooth;
-        }
-        .info-content::-webkit-scrollbar { width: 4px; }
-        .info-content::-webkit-scrollbar-track { background: transparent; }
-        .info-content::-webkit-scrollbar-thumb {
-          background: var(--border2);
-          border-radius: 2px;
-        }
-        .info-content::-webkit-scrollbar-thumb:hover {
-          background: #2a4060;
-        }
-
-        /* Description */
-        .info-description {
-          font-size: 12.5px;
-          color: var(--text2);
-          line-height: 1.7;
-          margin: 0;           /* spacing handled by parent gap */
-        }
-        .info-description strong { color: var(--text); font-weight: 600; }
-
-        /* Note row */
-        .info-note {
-          display: flex;
-          gap: 7px;
-          align-items: flex-start;
-          margin-top: 16px;
-          font-size: 11.5px;
-          color: var(--text3);
-          line-height: 1.6;
-          padding: 10px 12px;
-          background: rgba(250,204,21,0.05);
-          border: 1px solid rgba(250,204,21,0.12);
-          border-radius: 8px;
-        }
-        .info-note strong { color: var(--text2); font-weight: 600; }
-        .info-note-icon {
-          color: #facc15;
-          flex-shrink: 0;
-          font-size: 14px;
-          margin-top: 1px;
-        }
-
-        /* ── Preview section container ────────────────── */
-        .preview-section {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;           /* breathing room between description → rules → table */
-          padding: 4px 0;      /* top/bottom micro-padding so first section isn't flush */
-        }
-        .section-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 10px;
-        }
-        .section-badge {
-          display: inline-flex;
-          align-items: center;
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.07em;
-          text-transform: uppercase;
-          padding: 2px 8px;
-          border-radius: 20px;
-          background: rgba(16,224,161,0.1);
-          color: var(--accent);
-          border: 1px solid rgba(16,224,161,0.22);
-        }
-        .section-badge-alt {
-          background: rgba(99,179,237,0.1);
-          color: #63b3ed;
-          border-color: rgba(99,179,237,0.22);
-        }
-        .section-title {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--text);
-          letter-spacing: -0.01em;
-        }
-
-        /* ── Rule group ───────────────────────────────── */
-        .rule-group {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-          margin-bottom: 0;    /* parent gap handles spacing */
-          padding: 10px 12px;
-          background: rgba(255,255,255,0.02);
-          border: 1px solid #1e293b;
-          border-radius: 8px;
-        }
-        .rule-row {
-          display: flex;
-          align-items: baseline;
-          gap: 7px;
-          font-size: 11.5px;
-          color: var(--text3);
-          line-height: 1.5;
-        }
-        .rule-row strong { color: var(--text2); font-weight: 600; }
-        .rule-icon {
-          color: var(--accent);
-          font-size: 11px;
-          flex-shrink: 0;
-          opacity: 0.7;
-        }
-
-        /* ── OR divider ───────────────────────────────── */
-        .or-divider {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin: 28px 0;      /* generous vertical separation between Option A and B */
-        }
-        .or-line {
-          flex: 1;
-          height: 1px;
-          background: #1e293b;
-        }
-        .or-label {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: var(--text3);
-          padding: 3px 10px;
-          border: 1px solid #1e293b;
-          border-radius: 20px;
-          background: rgba(255,255,255,0.02);
-        }
-
-        /* ────────────────────────────────────────────── */
-        /* ── Spreadsheet preview ─────────────────────── */
-        /* ────────────────────────────────────────────── */
-
-        .xl-wrap {
-          border: 1px solid #1e293b;
-          border-radius: 10px;
-          overflow: hidden;
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 12px;
-        }
-        .xl-topbar {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          background: #1a4a2e;
-          color: rgba(255,255,255,0.85);
-          font-size: 11px;
-          font-family: inherit;
-          padding: 6px 11px;
-          letter-spacing: 0.01em;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        .xl-topbar svg { flex-shrink: 0; }
-        .xl-scroll { overflow-x: auto; }
-        .xl-scroll::-webkit-scrollbar { height: 4px; }
-        .xl-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
-
-        table.xl-table {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: auto;
-        }
-        table.xl-table th {
-          background: #0d1f35;
-          border: 1px solid #1e293b;
-          padding: 6px 10px;
-          font-size: 10.5px;
-          font-weight: 600;
-          color: #4a6a8a;
-          text-align: center;
-          white-space: nowrap;
-        }
-        th.xl-row-num-head,
-        td.xl-row-num {
-          width: 32px;
-          min-width: 32px;
-          background: #0d1f35;
-          color: #4a6a8a;
-          font-size: 10.5px;
-          text-align: center;
-          border: 1px solid #1e293b;
-          padding: 5px 6px;
-          user-select: none;
-        }
-        th.xl-depot-head {
-          background: rgba(161,120,0,0.15) !important;
-          color: #c9a227 !important;
-        }
-        table.xl-table td {
-          border: 1px solid #1a2a3f;
-          padding: 6px 10px;
-          white-space: nowrap;
-        }
-
-        /* Cell types */
-        td.xl-key {
-          background: rgba(16,224,161,0.06);
-          color: #10e0a1;
-          font-weight: 600;
-          text-align: left;
-          min-width: 160px;
-        }
-        td.xl-val {
-          color: var(--text2);
-          text-align: left;
-          min-width: 140px;
-        }
-        td.xl-num {
-          color: var(--text2);
-          text-align: right;
-          min-width: 88px;
-          position: relative;
-        }
-        td.xl-depot {
-          background: rgba(161,120,0,0.12);
-          color: #c9a227;
-          font-weight: 600;
-          text-align: left;
-        }
-        td.xl-diag {
-          background: rgba(255,255,255,0.03);
-          color: #2a4060;
-          text-align: right;
-          font-weight: 600;
-        }
-        tr.xl-depot-row td {
-          background: rgba(161,120,0,0.07);
-        }
-        tr.xl-depot-row td.xl-row-num {
-          background: #0d1f35;
-        }
-
-        /* Depot badge inside cell */
-        .depot-badge {
-          display: inline-block;
-          margin-left: 7px;
-          font-size: 9px;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          padding: 1px 5px;
-          border-radius: 4px;
-          background: rgba(161,120,0,0.2);
-          color: #c9a227;
-          border: 1px solid rgba(161,120,0,0.3);
-          vertical-align: middle;
-          font-family: inherit;
-        }
-      `}</style>
+      </aside>
     </>
   );
 }

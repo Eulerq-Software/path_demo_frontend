@@ -1,0 +1,843 @@
+/* ExcelUploadModal.css — Upgraded Design */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Design Tokens
+───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --eum-accent: #10e0a1;
+  --eum-accent-dim: rgba(16, 224, 161, 0.12);
+  --eum-accent-glow: rgba(16, 224, 161, 0.22);
+  --eum-accent-border: rgba(16, 224, 161, 0.28);
+  --eum-bg-deep: #060e1c;
+  --eum-bg-modal: #081225;
+  --eum-bg-card: rgba(255, 255, 255, 0.018);
+  --eum-border-subtle: rgba(255, 255, 255, 0.06);
+  --eum-border-base: #132035;
+  --eum-text-primary: #dde8f4;
+  --eum-text-secondary: #4e6e8e;
+  --eum-text-muted: #2e4460;
+  --eum-error: #f87171;
+  --eum-error-bg: rgba(239, 68, 68, 0.07);
+  --eum-error-border: rgba(239, 68, 68, 0.2);
+  --eum-radius-lg: 20px;
+  --eum-radius-md: 13px;
+  --eum-radius-sm: 9px;
+  --eum-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Animations
+───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes eumFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes eumPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 224, 161, 0.32);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 224, 161, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 224, 161, 0);
+  }
+}
+
+@keyframes eumCheckIn {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes eumSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Overlay
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+  animation: eumFadeIn 0.22s ease both;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Modal Panel
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-modal {
+  width: 500px;
+  max-width: 94vw;
+  background: var(--eum-bg-modal);
+  border: 1px solid var(--eum-border-base);
+  border-radius: var(--eum-radius-lg);
+  overflow: hidden;
+  animation: eumPop 0.3s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  box-shadow:
+    0 0 0 1px rgba(16, 224, 161, 0.05) inset,
+    0 32px 72px rgba(0, 0, 0, 0.65),
+    0 0 60px rgba(16, 224, 161, 0.04);
+  position: relative;
+}
+
+/* Subtle top accent line */
+.eum-modal::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 20%;
+  right: 20%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--eum-accent),
+    transparent
+  );
+  opacity: 0.5;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Header
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--eum-border-base);
+  background: linear-gradient(
+    135deg,
+    rgba(16, 224, 161, 0.055) 0%,
+    transparent 60%
+  );
+  position: relative;
+}
+
+.eum-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--eum-accent-dim);
+  border: 1px solid var(--eum-accent-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eum-accent);
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 0 16px rgba(16, 224, 161, 0.1);
+}
+
+.eum-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.eum-header-text h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--eum-text-primary);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.eum-header-text p {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  color: var(--eum-text-secondary);
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 0.02em;
+}
+
+.eum-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--eum-border-base);
+  background: var(--eum-bg-card);
+  color: var(--eum-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--eum-transition);
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.eum-close-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--eum-text-primary);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.eum-close-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Body
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-body {
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Section Label
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-section-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--eum-text-muted);
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Upload Option Cards
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.eum-option-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 14px;
+  border-radius: var(--eum-radius-md);
+  border: 1.5px dashed rgba(30, 58, 95, 0.8);
+  background: var(--eum-bg-card);
+  cursor: pointer;
+  transition:
+    border-color var(--eum-transition),
+    background var(--eum-transition),
+    transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1),
+    box-shadow var(--eum-transition);
+  outline: none;
+  font-family: inherit;
+  color: inherit;
+  overflow: hidden;
+}
+
+/* Hover shimmer effect */
+.eum-option-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(16, 224, 161, 0.04) 0%,
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity var(--eum-transition);
+}
+
+.eum-option-card:hover::after,
+.eum-option-card:focus-visible::after {
+  opacity: 1;
+}
+
+.eum-option-card:hover,
+.eum-option-card:focus-visible {
+  border-color: var(--eum-accent-border);
+  border-style: solid;
+  background: rgba(16, 224, 161, 0.03);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(16, 224, 161, 0.1);
+}
+
+.eum-option-card.dragging-over {
+  border-color: var(--eum-accent);
+  border-style: solid;
+  background: rgba(16, 224, 161, 0.07);
+  box-shadow: 0 0 0 3px var(--eum-accent-glow);
+  animation: pulseRing 1.2s ease infinite;
+  transform: none;
+}
+
+.eum-option-card.selected {
+  border-style: solid;
+  border-color: rgba(16, 224, 161, 0.45);
+  background: rgba(16, 224, 161, 0.055);
+  transform: none;
+  box-shadow: 0 4px 16px rgba(16, 224, 161, 0.08);
+}
+
+.eum-option-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--eum-accent-dim);
+  border: 1px solid rgba(16, 224, 161, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eum-accent);
+  font-size: 22px;
+  flex-shrink: 0;
+  transition:
+    background var(--eum-transition),
+    border-color var(--eum-transition),
+    box-shadow var(--eum-transition);
+  position: relative;
+  z-index: 1;
+}
+
+.eum-option-card:hover .eum-option-icon-wrap,
+.eum-option-card.selected .eum-option-icon-wrap {
+  background: rgba(16, 224, 161, 0.16);
+  border-color: rgba(16, 224, 161, 0.32);
+  box-shadow: 0 0 12px rgba(16, 224, 161, 0.15);
+}
+
+.eum-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.eum-option-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #cddaea;
+  letter-spacing: -0.01em;
+}
+
+.eum-option-ext {
+  font-size: 10px;
+  color: var(--eum-text-secondary);
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* Format badge top-right corner */
+.eum-option-badge {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--eum-text-muted);
+  font-family: "JetBrains Mono", monospace;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--eum-border-base);
+  border-radius: 4px;
+  padding: 2px 5px;
+  transition:
+    color var(--eum-transition),
+    border-color var(--eum-transition);
+}
+
+.eum-option-card:hover .eum-option-badge,
+.eum-option-card.selected .eum-option-badge {
+  color: var(--eum-accent);
+  border-color: var(--eum-accent-border);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Divider
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-divider {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 9.5px;
+  color: var(--eum-text-muted);
+  letter-spacing: 0.1em;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+}
+
+.eum-divider::before,
+.eum-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--eum-border-base);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Selected File Preview
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-file-preview {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 13px;
+  border-radius: var(--eum-radius-md);
+  background: rgba(16, 224, 161, 0.04);
+  border: 1px solid rgba(16, 224, 161, 0.2);
+  animation: eumSlideUp 0.22s ease both;
+  position: relative;
+  overflow: hidden;
+}
+
+.eum-file-preview::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--eum-accent),
+    rgba(16, 224, 161, 0.3)
+  );
+  border-radius: 2px 0 0 2px;
+}
+
+.eum-file-preview-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--eum-accent-dim);
+  border: 1px solid rgba(16, 224, 161, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eum-accent);
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.eum-file-preview-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.eum-file-preview-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--eum-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.eum-file-preview-size {
+  font-size: 10px;
+  color: var(--eum-text-secondary);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.eum-file-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.eum-check-icon {
+  color: var(--eum-accent);
+  animation: eumCheckIn 0.28s cubic-bezier(0.34, 1.5, 0.64, 1) both;
+  filter: drop-shadow(0 0 5px rgba(16, 224, 161, 0.4));
+}
+
+.eum-spinner {
+  display: inline-block;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 2px solid rgba(16, 224, 161, 0.15);
+  border-top-color: var(--eum-accent);
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.eum-remove-btn {
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  border: 1px solid var(--eum-border-base);
+  background: var(--eum-bg-card);
+  color: var(--eum-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--eum-transition);
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.eum-remove-btn:hover {
+  background: var(--eum-error-bg);
+  border-color: var(--eum-error-border);
+  color: var(--eum-error);
+  transform: scale(1.05);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Validation Error
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--eum-error);
+  padding: 10px 13px;
+  background: var(--eum-error-bg);
+  border: 1px solid var(--eum-error-border);
+  border-radius: var(--eum-radius-sm);
+  line-height: 1.5;
+  animation: eumSlideUp 0.2s ease both;
+}
+
+.eum-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Requirements Callout
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-callout {
+  background: rgba(12, 20, 36, 0.7);
+  border: 1px solid rgba(16, 224, 161, 0.1);
+  border-radius: var(--eum-radius-md);
+  padding: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgba(16, 224, 161, 0.03) inset,
+    0 8px 28px rgba(0, 0, 0, 0.3);
+}
+
+.eum-callout-title {
+  font-weight: 700;
+  font-size: 11px;
+  color: rgba(16, 224, 161, 0.85);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.eum-callout-title-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eum-accent);
+  box-shadow: 0 0 8px var(--eum-accent);
+  flex-shrink: 0;
+  animation: pulseRing 2s ease infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Excel Sample Table
+───────────────────────────────────────────────────────────────────────────── */
+
+.excel-table {
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(5, 11, 22, 0.85);
+  border: 1px solid rgba(16, 224, 161, 0.1);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  margin-bottom: 12px;
+}
+
+.excel-table-header {
+  background: rgba(16, 224, 161, 0.07);
+  font-weight: 700;
+  color: rgba(16, 224, 161, 0.9);
+  padding: 8px 13px;
+  border-bottom: 1px solid rgba(16, 224, 161, 0.12);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.excel-table-header-badge {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--eum-text-muted);
+  border: 1px solid var(--eum-border-base);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.excel-table-col-headers .excel-table-cell {
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--eum-text-secondary) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  padding: 7px 13px;
+}
+
+.excel-table-row {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+  transition: background var(--eum-transition);
+}
+
+.excel-table-row:hover:not(.excel-table-col-headers) {
+  background: rgba(16, 224, 161, 0.04);
+}
+
+.excel-table-row:last-child {
+  border-bottom: none;
+}
+
+.excel-table-cell {
+  flex: 1;
+  padding: 9px 13px;
+  color: #c8d8e8;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.excel-table-cell:first-child {
+  flex: 0 0 76px;
+  background: rgba(16, 224, 161, 0.04);
+  font-weight: 700;
+  color: var(--eum-accent);
+  border-right: 1px solid rgba(16, 224, 161, 0.07);
+}
+
+.excel-table-cell:not(:last-child):not(:first-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Callout Footer Note
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-callout-footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.eum-callout-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--eum-accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(16, 224, 161, 0.5);
+}
+
+.eum-callout-footer > span:last-child {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #8aabbf;
+}
+
+.eum-callout-footer strong {
+  color: var(--eum-text-primary);
+  font-weight: 700;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Footer
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--eum-border-base);
+  background: linear-gradient(to top, rgba(16, 224, 161, 0.02), transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Buttons
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--eum-transition);
+  font-family: inherit;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.eum-btn-cancel {
+  background: rgba(255, 255, 255, 0.04);
+  color: #6a8aaa;
+  border: 1px solid var(--eum-border-base);
+}
+
+.eum-btn-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--eum-text-primary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.eum-btn-upload {
+  background: linear-gradient(135deg, #12e8a6 0%, #07c46a 100%);
+  color: #03140d;
+  box-shadow:
+    0 2px 14px rgba(16, 224, 161, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.15) inset;
+}
+
+.eum-btn-upload:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow:
+    0 4px 22px rgba(16, 224, 161, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.15) inset;
+  transform: translateY(-1px);
+}
+
+.eum-btn-upload:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.97);
+}
+
+.eum-btn-cancel:disabled,
+.eum-btn-upload:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Success State
+───────────────────────────────────────────────────────────────────────────── */
+
+.eum-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 20px;
+  text-align: center;
+  animation: eumFadeIn 0.28s ease both;
+}
+
+.eum-success-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--eum-accent-dim);
+  border: 1px solid var(--eum-accent-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eum-accent);
+  font-size: 28px;
+  animation: pulseRing 1.8s ease-out;
+  box-shadow: 0 0 24px rgba(16, 224, 161, 0.15);
+}
+
+.eum-success-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--eum-text-primary);
+  margin: 4px 0 0;
+  letter-spacing: -0.01em;
+}
+
+.eum-success-sub {
+  font-size: 10.5px;
+  color: var(--eum-text-secondary);
+  margin: 0;
+  font-family: "JetBrains Mono", monospace;
+}

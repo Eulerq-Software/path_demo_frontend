@@ -1,0 +1,484 @@
+/* ─────────────────────────────────────────────────────────────
+   SolverCard.css
+   All class names are prefixed with "sc-" to avoid collisions.
+───────────────────────────────────────────────────────────── */
+
+/* ── Keyframes ─────────────────────────────────────────────── */
+@keyframes sc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sc-fade-slide {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sc-pulse-orange {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.5);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(249, 115, 22, 0);
+  }
+}
+
+@keyframes sc-pulse-teal {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 224, 161, 0.5);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 224, 161, 0);
+  }
+}
+
+/* ── Card shell ────────────────────────────────────────────── */
+.sc-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  overflow: hidden;
+
+  align-self: flex-start;
+  height: auto;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+.sc-header {
+  flex-shrink: 0;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sc-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sc-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  font-family: inherit;
+}
+
+.sc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Status chip ───────────────────────────────────────────── */
+.sc-status-chip {
+  display: inline-flex;
+  align-items: center;
+
+  gap: 6px;
+
+  padding: 0 2px;
+
+  font-family: "JetBrains Mono", monospace;
+
+  font-size: 9px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.18em;
+
+  text-transform: uppercase;
+
+  color: #f59e0b;
+
+  opacity: 0.9;
+}
+
+.sc-chip-spinner {
+  animation:
+    sc-spin 0.9s linear infinite,
+    sc-loader-glow 1.4s ease-in-out infinite;
+}
+
+/* ── Dot ───────────────────────────────────────────────────── */
+.sc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition:
+    background 0.4s ease,
+    box-shadow 0.4s ease,
+    opacity 0.4s ease;
+}
+
+.sc-dot-inactive {
+  background: var(--muted) !important;
+  box-shadow: none;
+  opacity: 0.45;
+}
+
+.sc-dot-active-orange {
+  background: #f97316 !important;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.7);
+  opacity: 1;
+}
+
+.sc-dot-active-teal {
+  background: var(--accent) !important;
+  box-shadow: 0 0 6px rgba(16, 224, 161, 0.7);
+  opacity: 1;
+}
+
+.sc-dot-pulse-orange {
+  background: #f97316 !important;
+  opacity: 1;
+  animation: sc-pulse-orange 1.2s ease-in-out infinite;
+}
+
+.sc-dot-pulse-teal {
+  background: var(--accent) !important;
+  opacity: 1;
+  animation: sc-pulse-teal 1.2s ease-in-out infinite;
+}
+
+/* ── Map wrapper ───────────────────────────────────────────── */
+.sc-map-wrap {
+  height: 320px;
+  overflow: hidden;
+  position: relative;
+  transition: filter 0.3s ease;
+  isolation: isolate;
+  z-index: 1;
+}
+
+.sc-map-blur-layer {
+  width: 100%;
+  height: 100%;
+
+  filter: blur(3px) brightness(0.42) saturate(0.7);
+
+  transform: scale(1.01);
+
+  transition: filter 0.3s ease;
+}
+
+.sc-map-normal {
+  width: 100%;
+  height: 100%;
+}
+
+.sc-overlay {
+  position: absolute;
+  inset: 0;
+
+  z-index: 9999;
+
+  background: rgba(2, 8, 24, 0.42);
+
+  backdrop-filter: blur(1px);
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 18px;
+
+  overflow: hidden;
+}
+
+.sc-overlay > * {
+  position: relative;
+  z-index: 10000;
+}
+
+.sc-overlay-label {
+  font-family: "JetBrains Mono", monospace;
+
+  font-size: 10px;
+
+  font-weight: 700;
+
+  letter-spacing: 0.26em;
+
+  text-transform: uppercase;
+
+  color: #f59e0b;
+
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
+
+  opacity: 0.95;
+  position: relative;
+  z-index: 50;
+}
+
+@keyframes sc-loader-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.25));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.65));
+  }
+}
+
+/* ── Assignments panel ─────────────────────────────────────── */
+.sc-assignments-wrap {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+
+  height: 180px;
+  /* fixed equal height */
+  min-height: 180px;
+  max-height: 180px;
+
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+
+  animation: sc-fade-slide 0.35s ease both;
+}
+
+.sc-assignments-header {
+  flex-shrink: 0;
+  padding: 10px 14px 6px;
+}
+
+.sc-assignments-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #5d78a6;
+}
+
+.sc-assignments-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 8px 4px;
+}
+
+.sc-assignments-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.sc-assignments-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sc-assignments-scroll::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 2px;
+}
+
+.sc-assignments-empty {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 8px 6px;
+}
+
+/* ── Assignment row ────────────────────────────────────────── */
+.sc-assignment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  min-height: 32px;
+
+  padding: 0 10px;
+
+  border-radius: 6px;
+
+  cursor: pointer;
+
+  border: 1px solid rgba(55, 85, 145, 0.22);
+
+  background: rgba(7, 18, 44, 0.82);
+
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+
+  font-size: 10px;
+
+  font-family: "JetBrains Mono", monospace;
+
+  margin-bottom: 5px;
+}
+
+.sc-assignment-row:last-child {
+  border-bottom: 1px solid transparent;
+}
+
+.sc-assignment-row:hover {
+  background: rgba(12, 28, 64, 0.95);
+
+  border-color: rgba(90, 130, 220, 0.35);
+}
+
+.sc-row-active-warm {
+  background: rgba(16, 89, 224, 0.1) !important;
+
+  border-color: #5074e9 !important;
+}
+
+.sc-row-active-cool {
+  background: rgba(16, 89, 224, 0.1) !important;
+
+  border-color: #10e0a1 !important;
+}
+
+/* ── Assignment row internals ──────────────────────────────── */
+.sc-assign-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+
+.sc-assign-rider-id {
+  min-width: 44px;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  font-family: "JetBrains Mono", monospace;
+
+  flex-shrink: 0;
+}
+
+.sc-rider-warm {
+  color: #436bd8;
+}
+
+.sc-rider-cool {
+  color: var(--accent);
+}
+
+.sc-assign-orders {
+  flex: 1;
+
+  font-size: 10px;
+
+  color: #b6c7ea;
+
+  font-family: "JetBrains Mono", monospace;
+
+  white-space: nowrap;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  letter-spacing: 0.02em;
+}
+
+.sc-assign-count {
+  flex-shrink: 0;
+
+  min-width: 18px;
+  height: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0 6px;
+
+  border-radius: 4px;
+
+  border: 1px solid rgba(60, 90, 150, 0.22);
+
+  background: rgba(3, 12, 30, 0.92);
+
+  color: #7f97c7;
+
+  font-size: 9px;
+
+  font-weight: 700;
+
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ── Fleet Distance footer ─────────────────────────────────── */
+.sc-fleet-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+.sc-fleet-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.sc-fleet-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+/* ── Baseline toggle (rendered as rightAction) ─────────────── */
+.sc-baseline-toggle {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border2);
+}
+
+.sc-toggle-btn {
+  padding: 0 10px;
+  height: 26px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: var(--surface2);
+  color: var(--text3);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.sc-toggle-btn:hover {
+  color: var(--text2);
+}
+
+.sc-toggle-btn.sc-toggle-active {
+  background: var(--accent);
+  color: #020d24;
+}

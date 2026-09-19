@@ -3,121 +3,73 @@
 import * as XLSX from "xlsx";
 
 interface RouteExportRow {
-    vehicle_id: number;
+  vehicle_id: number;
 
-    route: string;
+  route: string;
 
-    total_distance: number;
+  total_distance: number;
 
-    num_stops: number;
+  num_stops: number;
 }
 
 interface SummaryRow {
-    solver: string;
+  solver: string;
 
-    objective_value: number;
+  objective_value: number;
 
-    solve_time_ms: number;
+  solve_time_ms: number;
 
-    improvement_percent?: number;
+  improvement_percent?: number;
 
-    backend?: string;
+  backend?: string;
 }
 
 interface ExportResultsParams {
-    summary: SummaryRow[];
+  summary: SummaryRow[];
 
-    eulerqRoutes: RouteExportRow[];
+  eulerqRoutes: RouteExportRow[];
 
-    naiveRoutes: RouteExportRow[];
+  naiveRoutes: RouteExportRow[];
 
-    greedyRoutes: RouteExportRow[];
+  greedyRoutes: RouteExportRow[];
 
-    inputEcho?: Record<string, unknown>[];
+  inputEcho?: Record<string, unknown>[];
 }
 
 function createSheet(data: unknown[]) {
-    return XLSX.utils.json_to_sheet(data);
+  return XLSX.utils.json_to_sheet(data);
 }
 
 export function exportResultsToExcel({
-    summary,
-    eulerqRoutes,
-    naiveRoutes,
-    greedyRoutes,
-    inputEcho = [],
+  summary,
+  eulerqRoutes,
+  naiveRoutes,
+  greedyRoutes,
+  inputEcho = [],
 }: ExportResultsParams) {
-    // =========================================
-    // CREATE WORKBOOK
-    // =========================================
+  const workbook = XLSX.utils.book_new();
 
-    const workbook = XLSX.utils.book_new();
+  const summarySheet = createSheet(summary);
 
-    // =========================================
-    // SUMMARY SHEET
-    // =========================================
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
 
-    const summarySheet = createSheet(summary);
+  const eulerQSheet = createSheet(eulerqRoutes);
 
-    XLSX.utils.book_append_sheet(
-        workbook,
-        summarySheet,
-        "Summary"
-    );
+  XLSX.utils.book_append_sheet(workbook, eulerQSheet, "EulerQ_Routes");
 
-    // =========================================
-    // EULERQ ROUTES
-    // =========================================
+  const naiveSheet = createSheet(naiveRoutes);
 
-    const eulerQSheet = createSheet(eulerqRoutes);
+  XLSX.utils.book_append_sheet(workbook, naiveSheet, "Naive_Routes");
 
-    XLSX.utils.book_append_sheet(
-        workbook,
-        eulerQSheet,
-        "EulerQ_Routes"
-    );
+  const greedySheet = createSheet(greedyRoutes);
 
-    // =========================================
-    // NAIVE ROUTES
-    // =========================================
+  XLSX.utils.book_append_sheet(workbook, greedySheet, "Greedy_Routes");
 
-    const naiveSheet = createSheet(naiveRoutes);
+  if (inputEcho.length > 0) {
+    const inputEchoSheet = createSheet(inputEcho);
 
-    XLSX.utils.book_append_sheet(
-        workbook,
-        naiveSheet,
-        "Naive_Routes"
-    );
+    XLSX.utils.book_append_sheet(workbook, inputEchoSheet, "Input_Echo");
+  }
 
-    // =========================================
-    // GREEDY ROUTES
-    // =========================================
-
-    const greedySheet = createSheet(greedyRoutes);
-
-    XLSX.utils.book_append_sheet(
-        workbook,
-        greedySheet,
-        "Greedy_Routes"
-    );
-
-    // =========================================
-    // INPUT ECHO
-    // =========================================
-
-    if (inputEcho.length > 0) {
-        const inputEchoSheet = createSheet(inputEcho);
-
-        XLSX.utils.book_append_sheet(
-            workbook,
-            inputEchoSheet,
-            "Input_Echo"
-        );
-    }
-
-    // =========================================
-    // EXPORT FILE
-    // =========================================
-
-    XLSX.writeFile(workbook, "cvrp_results.xlsx");
+  XLSX.writeFile(workbook, "cvrp_results.xlsx");
 }

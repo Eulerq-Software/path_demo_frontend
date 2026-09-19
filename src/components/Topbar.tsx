@@ -1,25 +1,25 @@
 // src/components/Topbar.tsx
-import AboutModal from './AboutModal'
+import AboutModal from "./AboutModal";
 
 interface TopbarProps {
-    isSolving?: boolean;
+  isSolving?: boolean;
 
-    hasResults?: boolean;
+  hasResults?: boolean;
 
-    onAbout?: () => void;
+  onAbout?: () => void;
 
-    onReset?: () => void;
+  onReset?: () => void;
 }
 
 export default function Topbar({
-    isSolving = false,
-    hasResults = false,
-    onAbout,
-    onReset,
+  isSolving = false,
+  hasResults = false,
+  onAbout,
+  onReset,
 }: TopbarProps) {
-    return (
-        <header
-            className="
+  return (
+    <header
+      className="
         relative
         h-16
         border-b border-[#13213a]
@@ -27,88 +27,85 @@ export default function Topbar({
         px-8
         flex items-center justify-between
       "
-        >
-            {/* ===================================== */}
-            {/* LEFT — LOGO */}
-            {/* ===================================== */}
+    >
+      {/* ===================================== */}
+      {/* LEFT — LOGO */}
+      {/* ===================================== */}
 
-            <div className="flex items-center min-w-[220px]">
-                <a href="/">
-                    <img
-                        src="/full-light.svg"
-                        alt="EulerQ"
-                        className="h-[90px] object-contain block"
-                    />
-                </a>
-            </div>
+      <div className="flex items-center min-w-[220px]">
+        <a href="/">
+          <img
+            src="/full-light.svg"
+            alt="EulerQ"
+            className="h-[90px] object-contain block"
+          />
+        </a>
+      </div>
 
-            {/* ===================================== */}
-            {/* CENTER — TITLE */}
-            {/* ===================================== */}
+      {/* ===================================== */}
+      {/* CENTER — TITLE */}
+      {/* ===================================== */}
 
-            <div
-                className="
+      <div
+        className="
           absolute
           left-1/2
           -translate-x-1/2
           text-center
           pointer-events-none
         "
-            >
-                <h1
-                    className="
+      >
+        <h1
+          className="
             text-[18px]
             font-extrabold
             tracking-[-0.01em]
             text-white
           "
-                >
-                    CVRP Comparison DEMO
-                </h1>
+        >
+          CVRP Comparison DEMO
+        </h1>
 
-                <p
-                    className="
+        <p
+          className="
             mt-1
             text-[11px]
             tracking-[0.18em]
             uppercase
             text-[#64748b]
           "
-                >
-                    Naive vs Greedy vs EulerQ Quantum-Inspired ·
-                    Bengaluru Routing
-                </p>
-            </div>
+        >
+          Greedy vs Google OR-Tools vs EulerQ Quantum-Inspired · Bengaluru Routing
+        </p>
+      </div>
 
-            {/* ===================================== */}
-            {/* RIGHT — ACTIONS */}
-            {/* ===================================== */}
+      {/* ===================================== */}
+      {/* RIGHT — ACTIONS */}
+      {/* ===================================== */}
 
-            <div className="flex items-center gap-3 min-w-[220px] justify-end">
-                {/* LIVE STATUS */}
+      <div className="flex items-center gap-3 min-w-[220px] justify-end">
+        {/* LIVE STATUS */}
 
-                {isSolving && (
-                    <div className="flex items-center gap-2">
-                        <div
-                            className="
+        {isSolving && (
+          <div className="flex items-center gap-2">
+            <div
+              className="
                 w-2.5 h-2.5
                 rounded-full
                 bg-teal-400
                 animate-pulse
               "
-                        />
+            />
 
-                        <span className="text-[11px] text-teal-400 font-medium">
-                            LIVE
-                        </span>
-                    </div>
-                )}
+            <span className="text-[11px] text-teal-400 font-medium">LIVE</span>
+          </div>
+        )}
 
-                {/* ABOUT BUTTON */}
+        {/* ABOUT BUTTON */}
 
-                <button
-                    onClick={onAbout}
-                    className="
+        <button
+          onClick={onAbout}
+          className="
     h-9
     px-4
     rounded-lg
@@ -124,36 +121,31 @@ export default function Topbar({
     text-sm
     text-[#dbe4ee]
   "
-                >
-                    About
-                </button>
+        >
+          About
+        </button>
 
-                {/* RESET BUTTON */}
+        {/* RESET BUTTON */}
 
-                {hasResults && (
-                    <button
-                        onClick={onReset}
-                        className="
-              h-9
-              px-4
-              rounded-lg
-
-              border border-[#1e293b]
-
-              bg-[#081225]
-
-              hover:bg-[#0d1a33]
-
-              transition-all duration-200
-
-              text-sm
-              text-[#dbe4ee]
-            "
-                    >
-                        Reset
-                    </button>
-                )}
-            </div>
-        </header>
-    );
+        {hasResults && (
+          <button
+            onClick={() => window.location.reload()}
+            className="
+      h-9
+      px-4
+      rounded-lg
+      border border-[#1e293b]
+      bg-[#081225]
+      hover:bg-[#0d1a33]
+      transition-all duration-200
+      text-sm
+      text-[#dbe4ee]
+    "
+          >
+            Reset
+          </button>
+        )}
+      </div>
+    </header>
+  );
 }

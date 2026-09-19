@@ -1,48 +1,23 @@
 // src/utils/resultParser.ts
+//
+// Converts a SolveResponse's routes (backend shape, customer-only ids)
+// into the frontend-internal VehicleRoute[] shape (depot-bookended ids),
+// so downstream code — SolverMap, SolverCard, routeHelpers — never has to
+// special-case "did this come from the backend or the local solver".
 
-import type {
-    EulerQApiResponse,
-    VehicleRoute,
-} from "../types/cvrp";
+import type { RouteResultOut, VehicleRoute } from "../types/cvrp";
 
-export function parseEulerQRoutes(
-    response: EulerQApiResponse,
-    distanceMatrix: number[][]
-): VehicleRoute[] {
-    const vehicleRoutesMap = new Map<number, number[]>();
+const DEPOT_ID = 0;
 
-    response.result.forEach(([vehicleId, [from, to]]) => {
-        if (!vehicleRoutesMap.has(vehicleId)) {
-            vehicleRoutesMap.set(vehicleId, []);
-        }
-
-        const currentRoute = vehicleRoutesMap.get(vehicleId)!;
-
-        if (currentRoute.length === 0) {
-            currentRoute.push(from);
-        }
-
-        currentRoute.push(to);
-    });
-
-    return Array.from(vehicleRoutesMap.entries()).map(
-        ([vehicleId, route]) => {
-            let totalDistance = 0;
-
-            for (let i = 0; i < route.length - 1; i++) {
-                totalDistance +=
-                    distanceMatrix[route[i]][route[i + 1]];
-            }
-
-            return {
-                vehicleId,
-
-                route,
-
-                totalDistance,
-
-                totalLoad: 0,
-            };
-        }
-    );
+export function parseSolveRoutes(routes: RouteResultOut[]): VehicleRoute[] {
+  return routes.map(
+    (r): VehicleRoute => ({
+      vehicleId: r.vehicle_id,
+      route: [DEPOT_ID, ...r.route, DEPOT_ID],
+      totalDistance: r.distance,
+      totalLoad: r.load,
+      legDistances: [],
+      numStops: r.route.length,
+    }),
+  );
 }
