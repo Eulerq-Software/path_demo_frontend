@@ -25,17 +25,17 @@ interface ComparisonStore {
 
   hasResults: boolean;
 
-  naiveRoutes: VehicleRoute[] | null;
-  setNaiveRoutes: (routes: VehicleRoute[] | null) => void;
-
-  naiveAssignments: RouteAssignment[] | null;
-  setNaiveAssignments: (assignments: RouteAssignment[] | null) => void;
-
   greedyRoutes: VehicleRoute[] | null;
   setGreedyRoutes: (routes: VehicleRoute[] | null) => void;
 
   greedyAssignments: RouteAssignment[] | null;
   setGreedyAssignments: (assignments: RouteAssignment[] | null) => void;
+
+  orToolsRoutes: VehicleRoute[] | null;
+  setOrToolsRoutes: (routes: VehicleRoute[] | null) => void;
+
+  orToolsAssignments: RouteAssignment[] | null;
+  setOrToolsAssignments: (assignments: RouteAssignment[] | null) => void;
 
   eulerqRoutes: VehicleRoute[] | null;
   setEulerqRoutes: (routes: VehicleRoute[] | null) => void;
@@ -47,10 +47,10 @@ interface ComparisonStore {
   setMetrics: (metrics: SolveMetrics | null) => void;
 
   setResults: (payload: {
-    naiveRoutes: VehicleRoute[];
-    naiveAssignments: RouteAssignment[];
     greedyRoutes: VehicleRoute[];
     greedyAssignments: RouteAssignment[];
+    orToolsRoutes: VehicleRoute[];
+    orToolsAssignments: RouteAssignment[];
     eulerqRoutes: VehicleRoute[];
     eulerqAssignments: RouteAssignment[];
     metrics: SolveMetrics;
@@ -67,14 +67,14 @@ interface ComparisonStore {
 
 const INITIAL_STATE = {
   inputMode: "generate" as InputMode,
-  baselineSolver: "naive" as BaselineName,
+  baselineSolver: "greedy" as BaselineName,
   nodes: [] as Node[],
   instance: null,
   hasResults: false,
-  naiveRoutes: null,
-  naiveAssignments: null,
   greedyRoutes: null,
   greedyAssignments: null,
+  orToolsRoutes: null,
+  orToolsAssignments: null,
   eulerqRoutes: null,
   eulerqAssignments: null,
   metrics: null,
@@ -93,39 +93,38 @@ export const useComparisonStore = create<ComparisonStore>((set) => ({
 
   setInstance: (instance) => set({ instance }),
 
-  setNaiveRoutes: (routes) => set({ naiveRoutes: routes }),
-  setNaiveAssignments: (assignments) => set({ naiveAssignments: assignments }),
-
   setGreedyRoutes: (routes) => set({ greedyRoutes: routes }),
-  setGreedyAssignments: (assignments) =>
-    set({ greedyAssignments: assignments }),
+  setGreedyAssignments: (assignments) => set({ greedyAssignments: assignments }),
+
+  setOrToolsRoutes: (routes) => set({ orToolsRoutes: routes }),
+  setOrToolsAssignments: (assignments) =>
+    set({ orToolsAssignments: assignments }),
 
   setEulerqRoutes: (routes) => set({ eulerqRoutes: routes }),
-  setEulerqAssignments: (assignments) =>
-    set({ eulerqAssignments: assignments }),
+  setEulerqAssignments: (assignments) => set({ eulerqAssignments: assignments }),
 
   setMetrics: (metrics) => set({ metrics }),
 
   setResults: ({
-    naiveRoutes,
-    naiveAssignments,
     greedyRoutes,
     greedyAssignments,
+    orToolsRoutes,
+    orToolsAssignments,
     eulerqRoutes,
     eulerqAssignments,
     metrics,
   }) =>
     set({
-      naiveRoutes,
-      naiveAssignments,
       greedyRoutes,
       greedyAssignments,
+      orToolsRoutes,
+      orToolsAssignments,
       eulerqRoutes,
       eulerqAssignments,
       metrics,
       hasResults:
-        naiveRoutes.length > 0 &&
         greedyRoutes.length > 0 &&
+        orToolsRoutes.length > 0 &&
         eulerqRoutes.length > 0,
       solveError: null,
     }),
@@ -140,9 +139,9 @@ export const useComparisonStore = create<ComparisonStore>((set) => ({
 export const selectActiveBaselineRoutes = (
   s: ComparisonStore,
 ): VehicleRoute[] | null =>
-  s.baselineSolver === "naive" ? s.naiveRoutes : s.greedyRoutes;
+  s.baselineSolver === "greedy" ? s.greedyRoutes : s.orToolsRoutes;
 
 export const selectActiveBaselineAssignments = (
   s: ComparisonStore,
 ): RouteAssignment[] | null =>
-  s.baselineSolver === "naive" ? s.naiveAssignments : s.greedyAssignments;
+  s.baselineSolver === "greedy" ? s.greedyAssignments : s.orToolsAssignments;

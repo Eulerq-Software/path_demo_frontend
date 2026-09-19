@@ -7,18 +7,15 @@ import SolverMap from "../components/SolverMap";
 import Mode from "../components/Mode";
 import { useComparisonStore } from "../state/useComparisonStore";
 import { generateInstance } from "../utils/generator";
-import { runEulerQSolver, EulerQApiError } from "../utils/api";
-import { solveNaive } from "../solvers/naive";
-import { solveGreedy } from "../solvers/greedy";
-import { buildRouteAssignments } from "../utils/routeHelpers";
+import { solveCVRP, SolveApiError } from "../utils/api";
+import { parseSolveRoutes } from "../utils/resultParser";
+import { buildRouteAssignments, computeFleetTotal } from "../utils/routeHelpers";
 import type {
   VehicleRoute,
   RouteAssignment,
-  RouteResult,
   ExcelParseResult,
   SolveMetrics,
   GenerateParams,
-  Pickup,
 } from "../types/cvrp";
 import "./CompareDashboard.css";
 
@@ -46,46 +43,7 @@ const T = {
   },
 };
 
-type MapSolver = "naive" | "greedy" | "eulerq";
-
-function buildEulerQRoutes(
-  routeResults: RouteResult[],
-  pickups: Pickup[],
-): VehicleRoute[] {
-  const loadByPickupId = new Map<string, number>(
-    pickups.map((p) => [p.id, p.load]),
-  );
-
-  return routeResults.map((result) => {
-    const stopIds = result.route.slice(1, -1);
-    const totalLoad = stopIds.reduce(
-      (sum, id) => sum + (loadByPickupId.get(id) ?? 0),
-      0,
-    );
-
-    return {
-      vehicleId: result.rider_id,
-      route: result.route,
-      totalDistance: result.distance,
-      totalLoad,
-      legDistances: [],
-      numStops: stopIds.length,
-    };
-  });
-}
-
-function nodeIndexToStringId(idx: number): string {
-  return idx === 0 ? "DEPOT" : `P${String(idx).padStart(3, "0")}`;
-}
-
-function toRouteArrays(routes: VehicleRoute[] | null): string[][] {
-  if (!routes) return [];
-  return routes.map((vr) => {
-    return (vr.route as Array<string | number>).map((stop) =>
-      typeof stop === "number" ? nodeIndexToStringId(stop) : stop,
-    );
-  });
-}
+type MapSolver = "greedy" | "or_tools" | "eulerq";
 
 function sumDistance(routes: VehicleRoute[] | null): number {
   return (routes ?? []).reduce((s, vr) => s + vr.totalDistance, 0);
@@ -105,8 +63,8 @@ export default function CompareDashboard() {
     hasResults,
     metrics,
     nodes,
-    naiveRoutes,
     greedyRoutes,
+    orToolsRoutes,
     eulerqRoutes,
     setNodes,
     setInstance,
@@ -175,11 +133,8 @@ export default function CompareDashboard() {
       setInstance(result.instance);
       setHasGenerated(true);
 
-      const numPickups = result.instance.pickups.filter(
-        (p) => !p.is_depot,
-      ).length;
       toast.success(
-        `Generated ${numPickups} pickup node(s) across Bengaluru.`,
+        `Generated ${result.instance.customers.length} pickup node(s) across Bengaluru.`,
         { style: T.success },
       );
     },
@@ -201,18 +156,20 @@ export default function CompareDashboard() {
       setInstance(result.instance);
       setHasGenerated(true);
 
-      const numPickups = result.instance.pickups.filter(
-        (p) => !p.is_depot,
-      ).length;
-      toast.success(`Loaded ${numPickups} pickup location(s) from file.`, {
-        style: T.success,
-      });
+      toast.success(
+        `Loaded ${result.instance.customers.length} pickup location(s) from file.`,
+        { style: T.success },
+      );
     },
     [setNodes, setInstance, resetAll],
   );
 
   // ─────────────────────────────────────────────────────────────
   // Run Comparison handler
+  //
+  // All three solvers now hit the backend `/solve` endpoint — awaited
+  // sequentially (not Promise.all) so no two solves compete for the same
+  // server resources at once: greedy → or_tools → pyvrp.
   // ─────────────────────────────────────────────────────────────
 
   const handleRunComparison = useCallback(async () => {
@@ -232,60 +189,49 @@ export default function CompareDashboard() {
     const minDelay = new Promise<void>((res) => setTimeout(res, 3000));
 
     try {
-      const [naiveResult, greedyResult, eulerRaw] = await Promise.all([
-        Promise.resolve(
-          (() => {
-            const t0 = performance.now();
-            const routes: VehicleRoute[] = solveNaive(instance);
-            return { routes, solveTimeMs: performance.now() - t0 };
-          })(),
-        ),
-        Promise.resolve(
-          (() => {
-            const t0 = performance.now();
-            const routes: VehicleRoute[] = solveGreedy(instance);
-            return { routes, solveTimeMs: performance.now() - t0 };
-          })(),
-        ),
-        runEulerQSolver(instance),
-      ]);
+      // All three now hit the backend, sequentially, so no two solves run
+      // on the server at once: greedy → or_tools → pyvrp.
 
-      const eulerqVehicleRoutes: VehicleRoute[] = buildEulerQRoutes(
-        eulerRaw.routeResults,
-        instance.pickups,
+      // 1. Greedy — backend.
+      const greedyRaw = await solveCVRP(instance, "greedy");
+      const greedyRoutesResult: VehicleRoute[] = parseSolveRoutes(
+        greedyRaw.routes,
       );
+      const greedyTimeMs = (greedyRaw.solve_time_seconds ?? 0) * 1000;
 
-      const naiveAssignments: RouteAssignment[] = buildRouteAssignments(
-        naiveResult.routes,
-        instance,
-      );
+      // 2. Google OR-Tools — backend.
+      const orToolsRaw = await solveCVRP(instance, "or_tools");
+      const orToolsRoutesResult = parseSolveRoutes(orToolsRaw.routes);
+      const orToolsTimeMs = (orToolsRaw.solve_time_seconds ?? 0) * 1000;
+
+      // 3. EulerQ (pyvrp) — backend.
+      const eulerqRaw = await solveCVRP(instance, "pyvrp");
+      const eulerqRoutesResult = parseSolveRoutes(eulerqRaw.routes);
+      const eulerqTimeMs = (eulerqRaw.solve_time_seconds ?? 0) * 1000;
+
       const greedyAssignments: RouteAssignment[] = buildRouteAssignments(
-        greedyResult.routes,
+        greedyRoutesResult,
         instance,
       );
-      const eulerqAssignmentsBuilt: RouteAssignment[] = buildRouteAssignments(
-        eulerqVehicleRoutes,
+      const orToolsAssignments: RouteAssignment[] = buildRouteAssignments(
+        orToolsRoutesResult,
+        instance,
+      );
+      const eulerqAssignments: RouteAssignment[] = buildRouteAssignments(
+        eulerqRoutesResult,
         instance,
       );
 
-      const naiveTotal = naiveResult.routes.reduce(
-        (s, vr) => s + vr.totalDistance,
-        0,
-      );
-      const greedyTotal = greedyResult.routes.reduce(
-        (s, vr) => s + vr.totalDistance,
-        0,
-      );
-
-      const eulerqTotal = eulerRaw.objectiveValue;
-      const eulerqTimeMs = eulerRaw.solveTimeMs ?? 0;
+      const greedyTotal = computeFleetTotal(greedyRoutesResult);
+      const orToolsTotal =
+        orToolsRaw.total_distance ?? computeFleetTotal(orToolsRoutesResult);
+      const eulerqTotal =
+        eulerqRaw.total_distance ?? computeFleetTotal(eulerqRoutesResult);
 
       const activeBaselineTotal =
-        baselineSolver === "naive" ? naiveTotal : greedyTotal;
+        baselineSolver === "greedy" ? greedyTotal : orToolsTotal;
       const activeBaselineTime =
-        baselineSolver === "naive"
-          ? naiveResult.solveTimeMs
-          : greedyResult.solveTimeMs;
+        baselineSolver === "greedy" ? greedyTimeMs : orToolsTimeMs;
 
       const improvementPercent =
         activeBaselineTotal > 0
@@ -296,20 +242,20 @@ export default function CompareDashboard() {
         baselineSolverName: baselineSolver,
         baselineObjective: activeBaselineTotal,
         baselineTime: activeBaselineTime,
-        naiveTime: naiveResult.solveTimeMs,
-        greedyTime: greedyResult.solveTimeMs,
+        greedyTime: greedyTimeMs,
+        orToolsTime: orToolsTimeMs,
         eulerQObjective: eulerqTotal,
         eulerQTime: eulerqTimeMs,
         improvementPercent,
       };
 
       setResults({
-        naiveRoutes: naiveResult.routes,
-        naiveAssignments,
-        greedyRoutes: greedyResult.routes,
+        greedyRoutes: greedyRoutesResult,
         greedyAssignments,
-        eulerqRoutes: eulerqVehicleRoutes,
-        eulerqAssignments: eulerqAssignmentsBuilt,
+        orToolsRoutes: orToolsRoutesResult,
+        orToolsAssignments,
+        eulerqRoutes: eulerqRoutesResult,
+        eulerqAssignments,
         metrics: solvedMetrics,
       });
 
@@ -320,20 +266,9 @@ export default function CompareDashboard() {
     } catch (err) {
       console.error("[RunComparison]", err);
 
-      if (err instanceof EulerQApiError) {
-        // Extract clean message
-        let cleanMessage = err.message;
-
-        if (cleanMessage.includes("No solution available")) {
-          cleanMessage = "No solution available";
-        }
-
-        setSolveError(cleanMessage);
-
-        toast.error(cleanMessage, {
-          style: T.error,
-          duration: 7000,
-        });
+      if (err instanceof SolveApiError) {
+        setSolveError(err.message);
+        toast.error(err.message, { style: T.error, duration: 7000 });
       } else {
         const msg =
           err instanceof Error ? err.message : "Unknown solver error.";
@@ -379,10 +314,10 @@ export default function CompareDashboard() {
   const showResults = hasResults && assignmentsVisible && !showSolvingOverlay;
 
   const activeMapRoutes =
-    activeMapSolver === "naive"
-      ? naiveRoutes
-      : activeMapSolver === "greedy"
-        ? greedyRoutes
+    activeMapSolver === "greedy"
+      ? greedyRoutes
+      : activeMapSolver === "or_tools"
+        ? orToolsRoutes
         : eulerqRoutes;
 
   const activeMapPalette = activeMapSolver === "eulerq" ? "cool" : "warm";
@@ -391,20 +326,20 @@ export default function CompareDashboard() {
 
   const solverSummaries = [
     {
-      key: "naive" as MapSolver,
-      label: "Naive Solver",
-      dotClass: "result-dot--orange",
-      routes: naiveRoutes,
-      distance: sumDistance(naiveRoutes),
-      solveTimeMs: metrics?.naiveTime ?? 0,
-    },
-    {
       key: "greedy" as MapSolver,
       label: "Greedy Solver",
-      dotClass: "result-dot--blue",
+      dotClass: "result-dot--orange",
       routes: greedyRoutes,
       distance: sumDistance(greedyRoutes),
       solveTimeMs: metrics?.greedyTime ?? 0,
+    },
+    {
+      key: "or_tools" as MapSolver,
+      label: "Google OR-Tools",
+      dotClass: "result-dot--blue",
+      routes: orToolsRoutes,
+      distance: sumDistance(orToolsRoutes),
+      solveTimeMs: metrics?.orToolsTime ?? 0,
     },
     {
       key: "eulerq" as MapSolver,
@@ -475,7 +410,7 @@ export default function CompareDashboard() {
                 fontFamily: "JetBrains Mono, monospace",
               }}
             >
-              This demo compares two solvers side-by-side with live maps. A
+              This demo compares three solvers side-by-side with live maps. A
               screen width of at least 1024 px is recommended.
             </div>
             <button
@@ -538,7 +473,7 @@ export default function CompareDashboard() {
           >
             <SolverMap
               nodes={nodes}
-              routes={toRouteArrays(activeMapRoutes)}
+              routes={(activeMapRoutes ?? []).map((vr) => vr.route)}
               palette={activeMapPalette}
               activeVehicleIdx={activeMapVehicle}
             />
@@ -562,7 +497,10 @@ export default function CompareDashboard() {
                 </div>
                 <div className="summary-card">
                   <span className="summary-label">
-                    EulerQ vs {metrics.baselineSolverName}
+                    EulerQ vs{" "}
+                    {metrics.baselineSolverName === "greedy"
+                      ? "Greedy"
+                      : "Google OR"}
                   </span>
                   <span
                     className="summary-val"

@@ -115,16 +115,17 @@ function FitControl({ nodes }: { nodes: Node[] }) {
 
 interface SolverMapProps {
   nodes: Node[];
-  routes: string[][];
+  // Each route is a depot-bookended array of numeric node ids, e.g.
+  // [0, 3, 1, 0] — matches VehicleRoute["route"] in types/cvrp.ts.
+  routes: number[][];
   palette?: "warm" | "cool";
   activeVehicleIdx?: number | null;
 }
 
-function buildNodeMap(nodes: Node[]): Map<string, Node> {
-  const map = new Map<string, Node>();
-  nodes.forEach((node, i) => {
-    const key = i === 0 ? "DEPOT" : `P${String(i).padStart(3, "0")}`;
-    map.set(key, node);
+function buildNodeMap(nodes: Node[]): Map<number, Node> {
+  const map = new Map<number, Node>();
+  nodes.forEach((node) => {
+    map.set(node.id, node);
   });
   return map;
 }
@@ -191,8 +192,8 @@ export default function SolverMap({
       <FitBounds nodes={nodes} />
       <FitControl nodes={nodes} />
 
-      {nodes.map((node, i) => {
-        const isDepot = i === 0;
+      {nodes.map((node) => {
+        const isDepot = node.id === 0;
 
         return (
           <Marker
@@ -207,7 +208,7 @@ export default function SolverMap({
                 </div>
               ) : (
                 <div style={{ fontSize: 13 }}>
-                  <strong>Pickup P{String(i).padStart(3, "0")}</strong>
+                  <strong>Pickup P{String(node.id).padStart(3, "0")}</strong>
                   <br />
                   load: <strong>{node.demand}</strong>
                 </div>

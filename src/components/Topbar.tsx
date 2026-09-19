@@ -75,7 +75,7 @@ export default function Topbar({
             text-[#64748b]
           "
         >
-          Naive vs Greedy vs EulerQ Quantum-Inspired · Bengaluru Routing
+          Greedy vs Google OR-Tools vs EulerQ Quantum-Inspired · Bengaluru Routing
         </p>
       </div>
 

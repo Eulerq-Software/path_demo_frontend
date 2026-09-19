@@ -74,11 +74,10 @@ function SolverRunningOverlay({ accent }: { accent: "orange" | "teal" }) {
   );
 }
 
-function buildNodeMap(nodes: Node[]): Map<string, Node> {
-  const map = new Map<string, Node>();
-  nodes.forEach((node, i) => {
-    const key = i === 0 ? "DEPOT" : `P${String(i).padStart(3, "0")}`;
-    map.set(key, node);
+function buildNodeMap(nodes: Node[]): Map<number, Node> {
+  const map = new Map<number, Node>();
+  nodes.forEach((node) => {
+    map.set(node.id, node);
   });
   return map;
 }
@@ -117,18 +116,15 @@ function AssignmentsRows({
             : "sc-row-active-cool"
           : "";
 
-        const stopIds = (vr.route ?? []).filter((id) => id !== "DEPOT");
+        // route is depot-bookended ([0, ...customerIds, 0]) — drop the depot.
+        const stopIds = (vr.route ?? []).filter((id) => id !== 0);
 
         const stopLabels = stopIds.map((id) => {
           const node = nodeMap.get(id);
-          if (node) {
-            return `O${String(node.id).padStart(3, "0")}`;
-          }
-
-          return id;
+          return `O${String(node?.id ?? id).padStart(3, "0")}`;
         });
 
-        const riderId = vr.vehicleId ?? `R${String(idx + 1).padStart(3, "0")}`;
+        const riderLabel = `R${String(vr.vehicleId).padStart(3, "0")}`;
         const count = stopLabels.length;
 
         return (
@@ -138,7 +134,7 @@ function AssignmentsRows({
             onClick={() => onVehicleClick(isActive ? null : idx)}
           >
             <span className={`sc-assign-rider-id sc-rider-${palette}`}>
-              {riderId}
+              {riderLabel}
             </span>
             <span className="sc-assign-orders">
               {stopLabels.length > 0 ? stopLabels.join("   ") : "—"}

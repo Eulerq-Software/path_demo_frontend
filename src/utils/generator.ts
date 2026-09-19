@@ -1,22 +1,23 @@
 import type {
   Node,
-  Rider,
-  Pickup,
+  LocationIn,
+  CustomerIn,
+  VehicleIn,
   CVRPInstance,
   GenerateParams,
   ValidationError,
 } from "../types/cvrp";
 
 const BBOX = {
-  latMin: 12.834,
-  latMax: 13.139,
-  lngMin: 77.46,
-  lngMax: 77.78,
+  latMin: 12.384,
+  latMax: 13.589,
+  lngMin: 76.999,
+  lngMax: 78.241,
 } as const;
 
 const DEPOT_LAT = 12.9716;
 const DEPOT_LNG = 77.5946;
-const DEPOT_ID = "DEPOT";
+const DEPOT_ID = 0;
 
 export function haversineMetres(
   lat1: number,
@@ -53,14 +54,20 @@ function randBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
-function riderId(index: number): string {
-  return `R${String(index + 1).padStart(3, "0")}`;
+function riderName(index: number): string {
+  return `Rider ${String(index + 1).padStart(3, "0")}`;
 }
 
-function pickupId(index: number): string {
-  if (index === 0) return DEPOT_ID;
-  return `P${String(index).padStart(3, "0")}`;
+function customerName(index: number): string {
+  return `Pickup P${String(index + 1).padStart(3, "0")}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// parseCapacity / parsePickupLoad
+//
+// Kept the same signatures as before (used by Mode.tsx and, if you have
+// one, excelParser.ts) — only the eventual instance shape changed.
+// ─────────────────────────────────────────────────────────────────────────
 
 export function parseCapacity(
   raw: string,
@@ -132,50 +139,48 @@ export function parsePickupLoad(
   return { value: parsed, error: null };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// validateInstance
+//
+// Same checks as before (fleet present, customers present, capacity vs
+// demand feasibility) rewritten against vehicles[]/customers[].
+// ─────────────────────────────────────────────────────────────────────────
+
 export function validateInstance(
-  riders: import("../types/cvrp").Rider[],
-  pickups: import("../types/cvrp").Pickup[],
+  vehicles: VehicleIn[],
+  customers: CustomerIn[],
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (riders.length === 0) {
+  if (vehicles.length === 0) {
     errors.push({
-      field: "riders",
-      message: "At least one rider is required.",
+      field: "vehicles",
+      message: "At least one vehicle is required.",
     });
   }
 
-  if (pickups.length === 0) {
-    errors.push({ field: "pickups", message: "Pickups cannot be empty." });
-  }
-  const depots = pickups.filter((p) => p.is_depot);
-  if (depots.length === 0) {
-    errors.push({
-      field: "pickups",
-      message: "Exactly one pickup must be marked as depot.",
-    });
-  } else if (depots.length > 1) {
-    errors.push({
-      field: "pickups",
-      message: "Exactly one pickup must be marked as depot.",
-    });
+  if (customers.length === 0) {
+    errors.push({ field: "customers", message: "Customers cannot be empty." });
   }
 
-  const depot = depots[0];
-  if (depot && depot.load !== 0) {
-    errors.push({ field: "depot", message: "Depot load must be 0." });
-  }
+  const totalLoad = customers.reduce((sum, c) => sum + c.demand, 0);
+  const totalCap = vehicles.reduce((sum, v) => sum + v.capacity, 0);
 
-  const totalLoad = pickups
-    .filter((p) => !p.is_depot)
-    .reduce((sum, p) => sum + p.load, 0);
-  const totalCap = riders.reduce((sum, r) => sum + r.capacity, 0);
-
-  if (riders.length > 0 && totalLoad > totalCap) {
+  if (vehicles.length > 0 && totalLoad > totalCap) {
     errors.push({
       field: "capacity",
       message:
         "Warning: total load exceeds total fleet capacity — problem is infeasible.",
+    });
+  }
+
+  const maxDemand = customers.reduce((m, c) => Math.max(m, c.demand), 0);
+  const maxCapacity = vehicles.reduce((m, v) => Math.max(m, v.capacity), 0);
+  if (customers.length > 0 && vehicles.length > 0 && maxDemand > maxCapacity) {
+    errors.push({
+      field: "capacity",
+      message:
+        "Warning: at least one order's weight exceeds every vehicle's capacity — that order can never be assigned.",
     });
   }
 
@@ -190,53 +195,69 @@ export interface GenerateResult {
 
 export function generateInstance(params: GenerateParams): GenerateResult {
   const { numVehicles, numPickups, vehicleCapacity, pickupLoad } = params;
-  const riders: Rider[] = Array.from({ length: numVehicles }, (_, i) => ({
-    id: riderId(i),
+
+  const vehicles: VehicleIn[] = Array.from({ length: numVehicles }, (_, i) => ({
+    id: i + 1,
     capacity: Array.isArray(vehicleCapacity)
       ? (vehicleCapacity[i] ?? 1)
       : vehicleCapacity,
+    name: riderName(i),
   }));
 
-  const depotPickup: Pickup = {
+  const depot: LocationIn = {
     id: DEPOT_ID,
     lat: DEPOT_LAT,
     lon: DEPOT_LNG,
-    load: 0,
-    is_depot: true,
+    name: "Depot",
   };
 
-  const pickupEntries: Pickup[] = Array.from(
+  const customers: CustomerIn[] = Array.from(
     { length: numPickups },
     (_, i) => ({
-      id: pickupId(i + 1),
+      id: i + 1,
       lat: randBetween(BBOX.latMin, BBOX.latMax),
       lon: randBetween(BBOX.lngMin, BBOX.lngMax),
-      load: pickupLoad[i] ?? 0,
-      is_depot: false,
+      demand: pickupLoad[i] ?? 0,
+      name: customerName(i),
     }),
   );
 
-  const pickups: Pickup[] = [depotPickup, ...pickupEntries];
-  const nodes: Node[] = pickups.map((p, i) => ({
-    id: i,
-    type: p.is_depot ? ("depot" as const) : ("pickup" as const),
-    lat: p.lat,
-    lng: p.lon,
-    demand: p.load,
-  }));
+  const nodes: Node[] = [
+    { id: DEPOT_ID, type: "depot", lat: depot.lat, lng: depot.lon, demand: 0 },
+    ...customers.map(
+      (c): Node => ({
+        id: c.id,
+        type: "pickup",
+        lat: c.lat,
+        lng: c.lon,
+        demand: c.demand,
+      }),
+    ),
+  ];
 
-  const errors = validateInstance(riders, pickups);
-  const instance: CVRPInstance = {
-    riders,
-    pickups,
-  };
+  const errors = validateInstance(vehicles, customers);
+  const instance: CVRPInstance = { depot, customers, vehicles };
 
   return { nodes, instance, errors };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// nodesFromCoordinates
+//
+// Used by the Excel/CSV upload path (excelParser.ts) to turn a table of
+// {node_id, lat, lng} rows into a depot + customers[]. Row 0 is always
+// treated as the depot, matching the existing upload convention.
+//
+// NOTE: excelParser.ts wasn't in the files I reviewed — if it calls the
+// old `nodesFromCoordinates` (which returned `{ nodes, pickups }`), you'll
+// need to update its call site to use `{ nodes, depot, customers }`
+// instead. See the integration notes for details.
+// ─────────────────────────────────────────────────────────────────────────
+
 export interface CoordinateConversionResult {
   nodes: Node[];
-  pickups: Pickup[];
+  depot: LocationIn;
+  customers: CustomerIn[];
 }
 
 export function nodesFromCoordinates(
@@ -251,13 +272,20 @@ export function nodesFromCoordinates(
     demand: i === 0 ? 0 : (pickupLoads[i - 1] ?? 0),
   }));
 
-  const pickups: Pickup[] = rows.map((row, i) => ({
-    id: i === 0 ? DEPOT_ID : pickupId(i),
+  const depot: LocationIn = {
+    id: DEPOT_ID,
+    lat: rows[0]?.lat ?? DEPOT_LAT,
+    lon: rows[0]?.lng ?? DEPOT_LNG,
+    name: "Depot",
+  };
+
+  const customers: CustomerIn[] = rows.slice(1).map((row, i) => ({
+    id: i + 1,
     lat: row.lat,
-    lon: row.lng, // V1.1 API uses "lon"
-    load: i === 0 ? 0 : (pickupLoads[i - 1] ?? 0),
-    is_depot: i === 0,
+    lon: row.lng,
+    demand: pickupLoads[i] ?? 0,
+    name: customerName(i),
   }));
 
-  return { nodes, pickups };
+  return { nodes, depot, customers };
 }

@@ -1,52 +1,40 @@
 // src/utils/routeHelpers.ts
 //
-// Shared helpers for converting raw VehicleRoute[] data into the
-// RouteAssignment[] shape consumed by assignment card components.
-//
-// Kept separate from generator.ts so it can be imported by
-// CompareDashboard, SolverCard, and excelExport without creating
-// circular dependencies.
+// Shared helpers for converting VehicleRoute[] (from either the local
+// greedy solver or resultParser.ts) into the RouteAssignment[] shape
+// consumed by SolverCard.
 
-import type {
-  VehicleRoute,
-  RouteAssignment,
-  CVRPInstance,
-} from "../types/cvrp";
+import type { VehicleRoute, RouteAssignment, CVRPInstance } from "../types/cvrp";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // resolveCapacity
 //
-// Returns the capacity for a specific vehicle, handling both the
-// uniform (single int) and per-vehicle (int[]) cases.
-// ─────────────────────────────────────────────────────────────────────────────
+// Capacity now lives per-vehicle on instance.vehicles (each vehicle has
+// its own explicit `capacity`), so this is a lookup by id rather than the
+// old uniform/per-index array logic.
+// ─────────────────────────────────────────────────────────────────────────
 
 export function resolveCapacity(
-  vehicleCapacity: number | number[],
+  instance: CVRPInstance,
   vehicleId: number,
 ): number {
-  if (Array.isArray(vehicleCapacity)) {
-    return vehicleCapacity[vehicleId] ?? vehicleCapacity[0] ?? 0;
-  }
-  return vehicleCapacity;
+  return instance.vehicles.find((v) => v.id === vehicleId)?.capacity ?? 0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // buildRouteAssignments
 //
-// Converts a VehicleRoute[] (output of any solver) into RouteAssignment[]
-// for display in the assignment cards below each map pane.
-//
 // Adds:
-//   • capacity       — resolved per-vehicle capacity from the instance
+//   • capacity       — resolved from instance.vehicles by vehicleId
 //   • isOverCapacity — true if totalLoad > capacity (UI shows a warning badge)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 export function buildRouteAssignments(
   routes: VehicleRoute[],
   instance: CVRPInstance,
 ): RouteAssignment[] {
   return routes.map((vr): RouteAssignment => {
-    const capacity = resolveCapacity(instance.vehicle_capacity, vr.vehicleId);
+    const capacity = resolveCapacity(instance, vr.vehicleId);
     return {
       vehicleId: vr.vehicleId,
       route: vr.route,

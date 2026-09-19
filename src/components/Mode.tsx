@@ -189,12 +189,12 @@ export default function Mode({
   const [optimizationMode, setOptimizationMode] =
     useState<OptimizationMode>("distance");
 
-  const [numOrders, setNumOrders] = useState(350);
+  const [numOrders, setNumOrders] = useState(150);
   const [numRiders, setNumRiders] = useState(25);
   const [availableTimeHours, setAvailableTimeHours] = useState(4);
   const [trafficConsideration, setTrafficConsideration] = useState(true);
-  const [capacityMin, setCapacityMin] = useState(15);
-  const [capacityMax, setCapacityMax] = useState(30);
+  const [capacityMin, setCapacityMin] = useState(30);
+  const [capacityMax, setCapacityMax] = useState(50);
   const [loadMin, setLoadMin] = useState(1);
   const [loadMax, setLoadMax] = useState(10);
   const [distanceType, setDistanceType] = useState<"osrm" | "haversine">(

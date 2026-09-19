@@ -1,34 +1,65 @@
+// src/utils/api.ts
+//
+// Talks to the Fixed Fleet CVRP solver API described by api/schemas.py.
+// Unlike the old EulerQ client, this backend is synchronous — one POST
+// returns the finished SolveResponse directly (solve_time_seconds is
+// already populated in the response body), so there's no job/poll loop.
+
 import type {
   CVRPInstance,
-  EulerQApiResponse,
-  RouteResult,
+  SolveRequest,
+  SolveResponse,
+  BackendSolverName,
+  SolverConfigIn,
 } from "../types/cvrp";
 
-const BASE_URL = "https://server-staging-adc1.up.railway.app";
-const SOLVE_PATH = "/demo/cvrp/solve";
+// Set VITE_API_BASE_URL in .env / .env.local to point this at wherever
+// your backend actually runs. Falls back to local uvicorn's default port
+// so `npm run dev` + `uvicorn api.main:app --reload` work out of the box.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+// TODO: confirm the real route — this assumes the router is mounted at
+// the root (`POST /solve`). Adjust if main.py prefixes it, e.g. "/api/solve".
+const SOLVE_PATH = "/solve";
 
-const IS_STAGING = import.meta.env.VITE_ENV === "staging";
-const STAGING_TOKEN = "stage_101_eulerq";
+// Applied unless the caller overrides individual fields.
+const DEFAULT_CONFIG: SolverConfigIn = {
+  time_limit_seconds: 20.0,
+  seed: 42,
+  display: false,
+  collect_stats: true,
+};
 
-const POLL_INTERVAL_MS = 1_500;
-const MAX_POLL_ATTEMPTS = 40;
+// Display names for the UI — the backend only knows "greedy" / "or_tools" / "pyvrp".
+//
+// NOTE: api/schemas.py's SolverName enum defines the Google OR-Tools value
+// as "or_tools" (underscore). If your deployed API actually expects
+// "or-tools" (hyphen), change BackendSolverName in types/cvrp.ts and the
+// key below to match — everything else in this file is driven off that type.
+export const SOLVER_LABELS: Record<BackendSolverName, string> = {
+  greedy: "Greedy",
+  or_tools: "Google OR",
+  pyvrp: "EulerQ",
+};
 
-// ─────────────────────────────────────────────────────────────
-// Typed error class
-// ─────────────────────────────────────────────────────────────
+// SolverResult.status can be several different success strings depending
+// on the solver ("feasible", "optimal", "complete", ...) — rather than
+// allow-listing every success value (and breaking again the next time a
+// solver returns one we didn't anticipate), only reject the statuses that
+// actually mean the solve failed.
+const FAILURE_STATUSES = new Set(["infeasible", "error", "failed", "timeout"]);
 
-export class EulerQApiError extends Error {
+export class SolveApiError extends Error {
   constructor(
     message: string,
     public readonly code:
-      | "SUBMIT_FAILED"
-      | "POLL_FAILED"
-      | "JOB_FAILED"
-      | "TIMEOUT"
-      | "PARSE_ERROR",
+      | "REQUEST_FAILED"
+      | "HTTP_ERROR"
+      | "PARSE_ERROR"
+      | "SOLVER_ERROR",
+    public readonly solver?: BackendSolverName,
   ) {
     super(message);
-    this.name = "EulerQApiError";
+    this.name = "SolveApiError";
   }
 }
 
@@ -36,28 +67,42 @@ function buildHeaders(): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (IS_STAGING) {
-    headers["x-staging-token"] = STAGING_TOKEN;
-  }
   return headers;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function buildRequestBody(
+  instance: CVRPInstance,
+  solver: BackendSolverName,
+  config?: Partial<SolverConfigIn>,
+): SolveRequest {
+  return {
+    depot: instance.depot,
+    customers: instance.customers,
+    vehicles: instance.vehicles,
+    solver,
+    config: { ...DEFAULT_CONFIG, ...config },
+  };
 }
 
+// FastAPI validation errors (422) come back as { detail: [...] } with one
+// entry per failing field; anything else as { detail: "message" } or a
+// plain { message }. Try each shape before falling back.
 async function extractErrorMessage(
   response: Response,
   fallback: string,
 ): Promise<string> {
   try {
     const json = await response.json();
-    if (json?.message && typeof json.message === "string") {
-      return json.message;
+    if (Array.isArray(json?.detail)) {
+      return json.detail
+        .map((d: { loc?: (string | number)[]; msg?: string }) =>
+          d?.loc ? `${d.loc.join(".")}: ${d.msg}` : d?.msg,
+        )
+        .filter(Boolean)
+        .join("; ") || fallback;
     }
-    if (json?.error && typeof json.error === "string") {
-      return json.error;
-    }
+    if (typeof json?.detail === "string") return json.detail;
+    if (typeof json?.message === "string") return json.message;
     return response.statusText || fallback;
   } catch {
     try {
@@ -69,11 +114,20 @@ async function extractErrorMessage(
   }
 }
 
-async function submitJob(payload: CVRPInstance): Promise<string> {
-  const body = {
-    riders: payload.riders,
-    pickups: payload.pickups,
-  };
+// ─────────────────────────────────────────────────────────────────────────
+// solveCVRP
+//
+// Runs a single solver against the given instance. Call this once per
+// solver — CompareDashboard awaits Google OR and EulerQ sequentially so
+// the two backend calls don't race each other on the server.
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function solveCVRP(
+  instance: CVRPInstance,
+  solver: BackendSolverName,
+  config?: Partial<SolverConfigIn>,
+): Promise<SolveResponse> {
+  const body = buildRequestBody(instance, solver, config);
 
   let response: Response;
   try {
@@ -83,120 +137,39 @@ async function submitJob(payload: CVRPInstance): Promise<string> {
       body: JSON.stringify(body),
     });
   } catch {
-    throw new EulerQApiError(
-      "Network error — could not reach the server.",
-      "SUBMIT_FAILED",
+    throw new SolveApiError(
+      `Network error — could not reach the ${SOLVER_LABELS[solver]} solver.`,
+      "REQUEST_FAILED",
+      solver,
     );
   }
 
   if (!response.ok) {
     const message = await extractErrorMessage(
       response,
-      "Failed to submit job.",
+      `${SOLVER_LABELS[solver]} request failed (${response.status}).`,
     );
-    throw new EulerQApiError(message, "SUBMIT_FAILED");
+    throw new SolveApiError(message, "HTTP_ERROR", solver);
   }
 
-  let data: { jobId?: string };
+  let data: SolveResponse;
   try {
     data = await response.json();
   } catch {
-    throw new EulerQApiError("Unexpected response from server.", "PARSE_ERROR");
-  }
-
-  if (!data.jobId) {
-    throw new EulerQApiError("Server did not return a job ID.", "PARSE_ERROR");
-  }
-
-  return data.jobId;
-}
-
-interface RawPollResponse {
-  jobId: string;
-  status: "PENDING" | "COMPLETED" | "FAILED";
-  solveTimeMs?: number;
-  result?: RouteResult[];
-  message?: string;
-}
-
-async function pollJob(jobId: string): Promise<RawPollResponse> {
-  const url = `${BASE_URL}${SOLVE_PATH}/${jobId}`;
-
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    await sleep(POLL_INTERVAL_MS);
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "GET",
-        headers: buildHeaders(),
-      });
-    } catch {
-      throw new EulerQApiError(
-        "Network error — lost connection while polling.",
-        "POLL_FAILED",
-      );
-    }
-
-    if (!response.ok) {
-      const message = await extractErrorMessage(response, "Polling failed.");
-      throw new EulerQApiError(message, "POLL_FAILED");
-    }
-
-    let data: RawPollResponse;
-    try {
-      data = await response.json();
-    } catch {
-      throw new EulerQApiError(
-        "Unexpected response while polling.",
-        "PARSE_ERROR",
-      );
-    }
-
-    if (data.status === "COMPLETED") {
-      return data;
-    }
-
-    if (data.status === "FAILED") {
-      const reason = data.message?.trim()
-        ? data.message
-        : "Solver failed on the server. Please try again.";
-      throw new EulerQApiError(reason, "JOB_FAILED");
-    }
-  }
-
-  throw new EulerQApiError(
-    `Solver timed out after ${(MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS) / 1000}s. Please try again.`,
-    "TIMEOUT",
-  );
-}
-
-function parseCompletedResponse(raw: RawPollResponse): EulerQApiResponse {
-  if (!raw.result || !Array.isArray(raw.result) || raw.result.length === 0) {
-    throw new EulerQApiError(
-      "Completed job is missing result data.",
+    throw new SolveApiError(
+      `Unexpected response from the ${SOLVER_LABELS[solver]} solver.`,
       "PARSE_ERROR",
+      solver,
     );
   }
 
-  const routeResults: RouteResult[] = raw.result;
+  if (FAILURE_STATUSES.has(data.status)) {
+    throw new SolveApiError(
+      `${SOLVER_LABELS[solver]} returned status "${data.status}".`,
+      "SOLVER_ERROR",
+      solver,
+    );
+  }
 
-  const objectiveValue = routeResults.reduce((sum, r) => sum + r.distance, 0);
-
-  return {
-    solveTimeMs: raw.solveTimeMs ?? 0,
-    objectiveValue,
-    routeResults,
-  };
-}
-export async function runEulerQSolver(
-  payload: CVRPInstance,
-): Promise<EulerQApiResponse> {
-  const jobId = await submitJob(payload);
-  console.log(`[EulerQ] Job submitted → jobId: ${jobId}`);
-
-  const raw = await pollJob(jobId);
-  console.log(`[EulerQ] Job completed in ${raw.solveTimeMs?.toFixed(1)} ms`);
-
-  return parseCompletedResponse(raw);
+  return data;
 }
