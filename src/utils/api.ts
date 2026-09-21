@@ -1,10 +1,3 @@
-// src/utils/api.ts
-//
-// Talks to the Fixed Fleet CVRP solver API described by api/schemas.py.
-// Unlike the old EulerQ client, this backend is synchronous — one POST
-// returns the finished SolveResponse directly (solve_time_seconds is
-// already populated in the response body), so there's no job/poll loop.
-
 import type {
   CVRPInstance,
   SolveRequest,
@@ -13,15 +6,10 @@ import type {
   SolverConfigIn,
 } from "../types/cvrp";
 
-// Set VITE_API_BASE_URL in .env / .env.local to point this at wherever
-// your backend actually runs. Falls back to local uvicorn's default port
-// so `npm run dev` + `uvicorn api.main:app --reload` work out of the box.
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
-// TODO: confirm the real route — this assumes the router is mounted at
-// the root (`POST /solve`). Adjust if main.py prefixes it, e.g. "/api/solve".
+
 const SOLVE_PATH = "/solve";
 
-// Applied unless the caller overrides individual fields.
 const DEFAULT_CONFIG: SolverConfigIn = {
   time_limit_seconds: 20.0,
   seed: 42,
@@ -29,23 +17,12 @@ const DEFAULT_CONFIG: SolverConfigIn = {
   collect_stats: true,
 };
 
-// Display names for the UI — the backend only knows "greedy" / "or_tools" / "pyvrp".
-//
-// NOTE: api/schemas.py's SolverName enum defines the Google OR-Tools value
-// as "or_tools" (underscore). If your deployed API actually expects
-// "or-tools" (hyphen), change BackendSolverName in types/cvrp.ts and the
-// key below to match — everything else in this file is driven off that type.
 export const SOLVER_LABELS: Record<BackendSolverName, string> = {
   greedy: "Greedy",
   or_tools: "Google OR",
   pyvrp: "EulerQ",
 };
 
-// SolverResult.status can be several different success strings depending
-// on the solver ("feasible", "optimal", "complete", ...) — rather than
-// allow-listing every success value (and breaking again the next time a
-// solver returns one we didn't anticipate), only reject the statuses that
-// actually mean the solve failed.
 const FAILURE_STATUSES = new Set(["infeasible", "error", "failed", "timeout"]);
 
 export class SolveApiError extends Error {
@@ -84,9 +61,6 @@ function buildRequestBody(
   };
 }
 
-// FastAPI validation errors (422) come back as { detail: [...] } with one
-// entry per failing field; anything else as { detail: "message" } or a
-// plain { message }. Try each shape before falling back.
 async function extractErrorMessage(
   response: Response,
   fallback: string,
@@ -116,10 +90,6 @@ async function extractErrorMessage(
 
 // ─────────────────────────────────────────────────────────────────────────
 // solveCVRP
-//
-// Runs a single solver against the given instance. Call this once per
-// solver — CompareDashboard awaits Google OR and EulerQ sequentially so
-// the two backend calls don't race each other on the server.
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function solveCVRP(

@@ -1,5 +1,3 @@
-// src/components/Mode.tsx
-
 import { useState } from "react";
 import "../Styling/Mode.css";
 
@@ -34,17 +32,11 @@ type Props = {
 
 type OptimizationMode = "distance" | "riders";
 
-/*
- * The depot is fixed to central Bengaluru, matching the default
- * map center in SolverMap.tsx. Depot selection is shown here for
- * context but is not yet wired to GenerateParams — there is only
- * one depot supported today.
- */
 const DEPOT_LABEL = "Bangalore (Center)";
 const DEPOT_LAT = 12.9716;
 const DEPOT_LNG = 77.5946;
 
-const ORDERS_MIN = 50;
+const ORDERS_MIN = 20;
 const ORDERS_MAX = 1000;
 const RIDERS_MIN = 5;
 const RIDERS_MAX = 50;
@@ -189,8 +181,8 @@ export default function Mode({
   const [optimizationMode, setOptimizationMode] =
     useState<OptimizationMode>("distance");
 
-  const [numOrders, setNumOrders] = useState(150);
-  const [numRiders, setNumRiders] = useState(25);
+  const [numOrders, setNumOrders] = useState(20);
+  const [numRiders, setNumRiders] = useState(5);
   const [availableTimeHours, setAvailableTimeHours] = useState(4);
   const [trafficConsideration, setTrafficConsideration] = useState(true);
   const [capacityMin, setCapacityMin] = useState(30);
@@ -289,25 +281,19 @@ export default function Mode({
       const { depot, locations, warnings, fatalError } =
         await parseLocationFile(file);
 
-      /*
-       * Fatal parser error
-       */
       if (fatalError) {
         console.error("[Mode] Upload error:", fatalError);
         setUploadModalOpen(false);
         return;
       }
 
-      /*
-       * No valid locations
-       */
       if (!depot || locations.length === 0) {
         console.error("[Mode] No valid locations found.", warnings);
         setUploadModalOpen(false);
         return;
       }
 
-      const { nodes, instance } = buildInstanceFromLocations(
+      const { nodes, instance, errors } = buildInstanceFromLocations(
         locations,
         numRiders,
         averageCapacity,
@@ -317,11 +303,9 @@ export default function Mode({
       const result: ExcelParseResult = {
         nodes,
         instance,
+        errors,
       };
 
-      /*
-       * Pass the parsed instance to CompareDashboard.
-       */
       onUploadParsed(result);
 
       setUploadedFile(file);
@@ -350,11 +334,6 @@ export default function Mode({
     onRunComparison();
   }
 
-  /*
-   * ------------------------------------------------------------
-   * Render
-   * ------------------------------------------------------------
-   */
 
   return (
     <>

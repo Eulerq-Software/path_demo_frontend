@@ -116,7 +116,6 @@ function AssignmentsRows({
             : "sc-row-active-cool"
           : "";
 
-        // route is depot-bookended ([0, ...customerIds, 0]) — drop the depot.
         const stopIds = (vr.route ?? []).filter((id) => id !== 0);
 
         const stopLabels = stopIds.map((id) => {

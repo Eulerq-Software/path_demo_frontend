@@ -1,12 +1,20 @@
 // src/utils/excelParser.ts
+//
+// Parses uploaded location files (CSV/Excel) into the frontend's Node[] /
+// CVRPInstance shapes. Rewritten against the current types/cvrp.ts
+// (depot: LocationIn, customers: CustomerIn[], vehicles: VehicleIn[]) —
+// see generator.ts's nodesFromCoordinates(), which this now calls instead
+// of building the old riders/pickups shape by hand.
 
 import * as XLSX from "xlsx";
-import type { Node, Rider, Pickup, CVRPInstance } from "../types/cvrp";
-
-export interface ExcelParseResult {
-  nodes: Node[];
-  instance: CVRPInstance;
-}
+import type {
+  Node,
+  VehicleIn,
+  CVRPInstance,
+  ExcelParseResult,
+  ValidationError,
+} from "../types/cvrp";
+import { nodesFromCoordinates, validateInstance } from "./generator";
 
 export interface LocationParseResult {
   depot: { id: string; lat: number; lon: number } | null;
@@ -20,13 +28,13 @@ const FALLBACK_DEPOT_LAT = 12.9716;
 const FALLBACK_DEPOT_LNG = 77.5946;
 const BBOX = { latMin: 12.7, latMax: 13.2, lonMin: 77.4, lonMax: 77.8 };
 
-function riderId(index: number): string {
-  return `R${String(index + 1).padStart(3, "0")}`;
-}
-
 function pickupId(index: number): string {
   if (index === 0) return DEPOT_ID;
   return `P${String(index).padStart(3, "0")}`;
+}
+
+function riderName(index: number): string {
+  return `Rider ${String(index + 1).padStart(3, "0")}`;
 }
 
 function getSheet(
@@ -56,9 +64,9 @@ function inBangaloreBounds(lat: number, lon: number): boolean {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Parameters sheet parser  (used by parseExcelFile — multi-sheet format)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 interface Config {
   num_vehicles: number;
@@ -134,11 +142,14 @@ function parseParametersSheet(sheet: XLSX.WorkSheet): Config {
   return { num_vehicles, num_pickups, vehicle_capacity, pickup_load };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Coordinates sheet parser  (used by parseExcelFile — multi-sheet format)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
-function parseCoordinatesSheet(sheet: XLSX.WorkSheet, config: Config): Node[] {
+function parseCoordinatesSheet(
+  sheet: XLSX.WorkSheet,
+  config: Config,
+): { node_id: string; lat: number; lng: number }[] {
   const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: null,
@@ -179,44 +190,21 @@ function parseCoordinatesSheet(sheet: XLSX.WorkSheet, config: Config): Node[] {
         `Coordinates row ${idx + 1}: longitude ${lng} is out of range [-180, 180].`,
       );
 
-    return {
-      id: idx,
-      type: (idx === 0 ? "depot" : "pickup") as "depot" | "pickup",
-      lat,
-      lng,
-      demand: idx === 0 ? 0 : config.pickup_load[idx - 1],
-    } satisfies Node;
+    return { node_id: pickupId(idx), lat, lng };
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Build V1.1 CVRPInstance from config + nodes
-// ─────────────────────────────────────────────────────────────────────────────
-
-function buildInstanceFromConfig(config: Config, nodes: Node[]): CVRPInstance {
-  const riders: Rider[] = Array.from(
-    { length: config.num_vehicles },
-    (_, i) => ({
-      id: riderId(i),
-      capacity: config.vehicle_capacity,
-    }),
-  );
-
-  const pickups: Pickup[] = nodes.map((n, idx) => ({
-    id: pickupId(idx),
-    lat: n.lat,
-    lon: n.lng, // Node uses "lng"; Pickup V1.1 uses "lon"
-    load: n.demand,
-    is_depot: n.type === "depot",
+function buildVehicles(config: Config): VehicleIn[] {
+  return Array.from({ length: config.num_vehicles }, (_, i) => ({
+    id: i + 1,
+    capacity: config.vehicle_capacity,
+    name: riderName(i),
   }));
-
-  return { riders, pickups };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // parseExcelFile — existing multi-sheet format (Parameters + Coordinates)
-// Kept for any existing usage; now produces V1.1 output.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 export async function parseExcelFile(file: File): Promise<ExcelParseResult> {
   const buffer = await file.arrayBuffer();
@@ -247,13 +235,20 @@ export async function parseExcelFile(file: File): Promise<ExcelParseResult> {
         "It must contain lat/lng columns.",
     );
 
-  const nodes = parseCoordinatesSheet(coordSheet, config);
-  const instance = buildInstanceFromConfig(config, nodes);
+  const rows = parseCoordinatesSheet(coordSheet, config);
+  const { nodes, depot, customers } = nodesFromCoordinates(
+    rows,
+    config.pickup_load,
+  );
+  const vehicles = buildVehicles(config);
 
-  return { nodes, instance };
+  const instance: CVRPInstance = { depot, customers, vehicles };
+  const errors = validateInstance(vehicles, customers);
+
+  return { nodes, instance, errors };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // parseLocationFile — simple single-sheet format for the Upload button.
 //
 // Accepts a CSV or Excel file with columns:
@@ -265,7 +260,7 @@ export async function parseExcelFile(file: File): Promise<ExcelParseResult> {
 // ROW 2+ = PICKUPS → returned as `locations`
 //
 // Rows outside Bengaluru bounds are skipped with a warning.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 const ID_ALIASES = ["id"];
 const LAT_ALIASES = ["lat", "latitude"];
@@ -415,67 +410,59 @@ export async function parseLocationFile(
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // buildInstanceFromLocations — converts parsed locations into a full
-// CVRPInstance ready to pass to the solvers.
+// CVRPInstance ready to pass to the solvers, via generator.ts's
+// nodesFromCoordinates() (depot/customers, LocationIn/CustomerIn shape).
 //
 // depotOverride: pass the `depot` field from parseLocationFile() so the
 // first row of the uploaded file is used as the depot.
 // If omitted (e.g. when using the Generate button), the fallback depot
 // coordinates are used instead.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 export function buildInstanceFromLocations(
   locations: Array<{ id: string; lat: number; lon: number }>,
   numVehicles: number,
   vehicleCapacity: number,
   depotOverride?: { id: string; lat: number; lon: number },
-): { nodes: Node[]; instance: CVRPInstance } {
+): { nodes: Node[]; instance: CVRPInstance; errors: ValidationError[] } {
   const depotCoords = depotOverride ?? {
     id: DEPOT_ID,
     lat: FALLBACK_DEPOT_LAT,
     lon: FALLBACK_DEPOT_LNG,
   };
 
-  const depotPickup: Pickup = {
-    id: depotCoords.id || DEPOT_ID,
-    lat: depotCoords.lat,
-    lon: depotCoords.lon,
-    load: 0,
-    is_depot: true,
-  };
+  const rows = [
+    { node_id: depotCoords.id || DEPOT_ID, lat: depotCoords.lat, lng: depotCoords.lon },
+    ...locations.map((loc, i) => ({
+      node_id: loc.id || pickupId(i + 1),
+      lat: loc.lat,
+      lng: loc.lon,
+    })),
+  ];
 
-  const stopPickups: Pickup[] = locations.map((loc, i) => ({
-    id: loc.id || pickupId(i + 1), // use file id, fallback to auto-generated
-    lat: loc.lat,
-    lon: loc.lon,
-    load: 1, // default load per pickup = 1
-    is_depot: false,
-  }));
+  // default load per pickup = 1, matching the previous behaviour
+  const pickupLoads = locations.map(() => 1);
 
-  const pickups: Pickup[] = [depotPickup, ...stopPickups];
+  const { nodes, depot, customers } = nodesFromCoordinates(rows, pickupLoads);
 
-  const riders: Rider[] = Array.from({ length: numVehicles }, (_, i) => ({
-    id: riderId(i),
+  const vehicles: VehicleIn[] = Array.from({ length: numVehicles }, (_, i) => ({
+    id: i + 1,
     capacity: vehicleCapacity,
+    name: riderName(i),
   }));
 
-  // Build Node[] for the map renderer (uses "lng" not "lon")
-  const nodes: Node[] = pickups.map((p, idx) => ({
-    id: idx,
-    type: p.is_depot ? ("depot" as const) : ("pickup" as const),
-    lat: p.lat,
-    lng: p.lon,
-    demand: p.load,
-  }));
+  const instance: CVRPInstance = { depot, customers, vehicles };
+  const errors = validateInstance(vehicles, customers);
 
-  return { nodes, instance: { riders, pickups } };
+  return { nodes, instance, errors };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // downloadLocationTemplate — triggers a browser download of a sample CSV.
 // Row 1 = depot, rows 2+ = pickups.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 
 export function downloadLocationTemplate(): void {
   const csv = [

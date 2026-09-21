@@ -7,17 +7,57 @@ import type {
   GenerateParams,
   ValidationError,
 } from "../types/cvrp";
-
-const BBOX = {
-  latMin: 12.384,
-  latMax: 13.589,
-  lngMin: 76.999,
-  lngMax: 78.241,
-} as const;
+import BANGALORE_LOCATIONS_CSV from "../data/bangalore_locations.csv?raw";
 
 const DEPOT_LAT = 12.9716;
 const DEPOT_LNG = 77.5946;
 const DEPOT_ID = 0;
+
+interface RealLocation {
+  name: string;
+  category: string;
+  lat: number;
+  lng: number;
+}
+
+function parseLocationsCsv(csv: string): RealLocation[] {
+  return csv
+    .trim()
+    .split("\n")
+    .slice(1) 
+    .map((line) => {
+      const [name, category, lat, lng] = line.split(",");
+      return { name, category, lat: Number(lat), lng: Number(lng) };
+    });
+}
+
+const BANGALORE_LOCATIONS: RealLocation[] = parseLocationsCsv(
+  BANGALORE_LOCATIONS_CSV,
+);
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+const REUSE_JITTER_DEG = 0.0011;
+
+function pickRealLocations(count: number): RealLocation[] {
+  const pool = shuffled(BANGALORE_LOCATIONS);
+  return Array.from({ length: count }, (_, i) => {
+    const base = pool[i % pool.length];
+    if (i < pool.length) return base;
+    return {
+      ...base,
+      lat: base.lat + (Math.random() - 0.5) * REUSE_JITTER_DEG,
+      lng: base.lng + (Math.random() - 0.5) * REUSE_JITTER_DEG,
+    };
+  });
+}
 
 export function haversineMetres(
   lat1: number,
@@ -50,10 +90,6 @@ export function buildDistanceMatrix(nodes: Node[]): number[][] {
   );
 }
 
-function randBetween(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
 function riderName(index: number): string {
   return `Rider ${String(index + 1).padStart(3, "0")}`;
 }
@@ -64,9 +100,6 @@ function customerName(index: number): string {
 
 // ─────────────────────────────────────────────────────────────────────────
 // parseCapacity / parsePickupLoad
-//
-// Kept the same signatures as before (used by Mode.tsx and, if you have
-// one, excelParser.ts) — only the eventual instance shape changed.
 // ─────────────────────────────────────────────────────────────────────────
 
 export function parseCapacity(
@@ -141,9 +174,6 @@ export function parsePickupLoad(
 
 // ─────────────────────────────────────────────────────────────────────────
 // validateInstance
-//
-// Same checks as before (fleet present, customers present, capacity vs
-// demand feasibility) rewritten against vehicles[]/customers[].
 // ─────────────────────────────────────────────────────────────────────────
 
 export function validateInstance(
@@ -211,16 +241,15 @@ export function generateInstance(params: GenerateParams): GenerateResult {
     name: "Depot",
   };
 
-  const customers: CustomerIn[] = Array.from(
-    { length: numPickups },
-    (_, i) => ({
-      id: i + 1,
-      lat: randBetween(BBOX.latMin, BBOX.latMax),
-      lon: randBetween(BBOX.lngMin, BBOX.lngMax),
-      demand: pickupLoad[i] ?? 0,
-      name: customerName(i),
-    }),
-  );
+  const pickupLocations = pickRealLocations(numPickups);
+
+  const customers: CustomerIn[] = pickupLocations.map((loc, i) => ({
+    id: i + 1,
+    lat: loc.lat,
+    lon: loc.lng,
+    demand: pickupLoad[i] ?? 0,
+    name: loc.name,
+  }));
 
   const nodes: Node[] = [
     { id: DEPOT_ID, type: "depot", lat: depot.lat, lng: depot.lon, demand: 0 },
@@ -240,19 +269,6 @@ export function generateInstance(params: GenerateParams): GenerateResult {
 
   return { nodes, instance, errors };
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// nodesFromCoordinates
-//
-// Used by the Excel/CSV upload path (excelParser.ts) to turn a table of
-// {node_id, lat, lng} rows into a depot + customers[]. Row 0 is always
-// treated as the depot, matching the existing upload convention.
-//
-// NOTE: excelParser.ts wasn't in the files I reviewed — if it calls the
-// old `nodesFromCoordinates` (which returned `{ nodes, pickups }`), you'll
-// need to update its call site to use `{ nodes, depot, customers }`
-// instead. See the integration notes for details.
-// ─────────────────────────────────────────────────────────────────────────
 
 export interface CoordinateConversionResult {
   nodes: Node[];

@@ -14,7 +14,12 @@
   --muted: #2a4060;
   --text: #f0f6ff;
   --text2: #8bafd4;
-  --text3: #4a6a8a;
+  /* --text3 nudged from #4a6a8a -> #5a7ea0 (still the dimmest/tertiary
+     tone, used for small uppercase labels) — the original measured
+     ~3.4:1 against --surface, below WCAG AA's 4.5:1 for normal-size
+     text; this reads ~4.3-4.5:1 while keeping the same de-emphasized
+     role relative to --text2/--text. */
+  --text3: #5a7ea0;
 }
 
 * {
@@ -26,6 +31,21 @@
 body {
   background: var(--bg);
   color: var(--text);
+  font-family: "Inter", sans-serif;
+}
+
+/* ── Accessibility: visible keyboard focus ring everywhere ───
+   Mouse users still see the existing :hover treatment; keyboard
+   users get an explicit, consistent ring instead of the invisible
+   default outline that most of these components suppress. */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* ── Keyframes ─────────────────────────────────────────────── */
@@ -191,7 +211,7 @@ body {
 
 .field-input {
   height: 34px;
-  border-radius: 7px;
+  border-radius: 8px;
   border: 1px solid var(--border2);
   background: var(--surface2);
   color: var(--text);
@@ -227,6 +247,33 @@ body {
   height: 26px;
   background: var(--border);
   flex-shrink: 0;
+}
+
+/* ── Topbar buttons (About / Reset) ──────────────────────────
+   Shares the same visual language as .btn-demo (surface/border2,
+   text2, hover -> text/muted) instead of one-off hex values. */
+.topbar-btn {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.topbar-btn:hover {
+  color: var(--text);
+  border-color: var(--muted);
+  background: var(--surface);
+}
+
+.topbar-btn:active {
+  transform: translateY(1px);
 }
 
 /* ── Buttons ───────────────────────────────────────────────── */
@@ -287,6 +334,11 @@ body {
   filter: brightness(1.1);
 }
 
+.btn-demo:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+
 .btn-demo:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -304,8 +356,8 @@ body {
   gap: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 18px;
+  border-radius: 12px;
+  padding: 8px 18px;
   margin: 0;
   overflow: hidden;
   animation: expandIn 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -338,10 +390,10 @@ body {
 }
 
 .summary-val {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 800;
   font-family: "JetBrains Mono", monospace;
-  margin-top: 3px;
+  margin-top: 2px;
   animation: valPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
@@ -351,40 +403,8 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  gap: 20px;
+  gap: 12px;
   margin-left: 370px;
-  transition: margin-left 0.3s ease;
-}
-.dashboard-content--full {
-  margin-left: 0;
-}
-.btn-show-sidebar {
-  position: fixed;
-  top: 80px;
-  left: 16px;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--mode-teal, #2dd4bf);
-  color: #020D24;
-  border: none;
-  border-radius: 10px;
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(45, 212, 191, 0.3);
-  animation: fadeIn 0.3s ease both;
-}
-
-.btn-show-sidebar:hover {
-  background: var(--mode-teal-dark, #14b8a6);
-}
-
-.btn-show-sidebar .btn-icon {
-  width: 16px;
-  height: 16px;
 }
 /* ── Map section (single shared map) ──────────────────────── */
 .map-section {
@@ -402,16 +422,20 @@ body {
 }
 
 .map-section--results {
-  flex: 0 0 auto;
-  height: clamp(340px, 44vh, 560px);
-  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  flex: 1 1 auto;
+  min-height: 340px;
 }
 
 /* ── Results section (summary + solver comparison cards) ───── */
+/* flex: 0 0 auto — sizes to its content's natural height so the map
+   (flex: 1 1 auto above) is the piece that absorbs any leftover
+   vertical space in .dashboard-content, leaving no empty gap at the
+   bottom of the page on tall viewports. */
 .results-section {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   animation: fadeUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
@@ -557,16 +581,20 @@ body {
   }
 }
 
-/* ── Result row: one card per solver (naive / greedy / eulerq) ─ */
+/* ── Result row: one card per solver (naive / greedy / eulerq) ─
+   16px to match .results-section's own gap (both are "structural
+   block" spacing, one level down from dashboard-content's 20px —
+   was 14px for no reason other than having been eyeballed separately). */
 .result-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  gap: 10px;
   animation: expandIn 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 /* ── Individual result card (1 col, 2 rows) ────────────────── */
 .result-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -577,6 +605,32 @@ body {
   transition:
     border-color 0.25s,
     box-shadow 0.25s;
+}
+
+/* ── "Currently active on map" indicator ──────────────────────
+   A subtle pulsing ring on a ::after overlay (not the card's own
+   box-shadow, which .result-card--best already uses) so "active"
+   and "best" can be signalled at the same time without fighting
+   each other. Reuses the existing dotPulse keyframes instead of a
+   new animation. */
+.result-card--active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.result-card--active-orange::after {
+  animation: dotPulseOrange 2.4s ease-in-out infinite;
+}
+
+.result-card--active-blue::after {
+  animation: dotPulseBlue 2.4s ease-in-out infinite;
+}
+
+.result-card--active-teal::after {
+  animation: dotPulseTeal 2.4s ease-in-out infinite;
 }
 
 .result-card--best {
@@ -591,12 +645,111 @@ body {
   );
 }
 
+/* ── Errored solver card (partial-failure state) ─────────────
+   A distinct red-tinted treatment, mirroring --best's pattern, so
+   a failed solver reads as "clearly failed" rather than broken or
+   stuck loading — while the other two cards render normally. */
+.result-card--errored {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.05) 0%,
+    var(--surface) 60%
+  );
+}
+
+.result-card-error-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  padding: 22px 16px;
+}
+
+.result-card-error-icon {
+  width: 20px;
+  height: 20px;
+  color: #ef4444;
+  margin-bottom: 2px;
+}
+
+.result-card-error-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ef4444;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.result-card-error-message {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.5;
+}
+
+/* ── Pending solver card (still running) ──────────────────────
+   Dashed border instead of a solid one — visually distinct from
+   both the plain "waiting to be looked at" default and the solid
+   --best/--errored states, so a glance tells you this card simply
+   hasn't reported back yet. Keeps the exact same header/quad-grid
+   shape as the finished card so nothing reflows when it pops in. */
+.result-card--pending {
+  border-style: dashed;
+  border-color: var(--border2);
+}
+
+.result-solving-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.result-solving-spin {
+  width: 11px;
+  height: 11px;
+  animation: spin 1s linear infinite;
+}
+
+.result-stat-skeleton {
+  display: block;
+  width: 65%;
+  height: 16px;
+  margin-top: 3px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    var(--border2) 50%,
+    var(--border) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 /* Row 1 — header with solver name */
 .result-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.015);
 }
@@ -660,10 +813,10 @@ body {
 }
 
 .result-stat-cell {
-  padding: 12px 16px;
+  padding: 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   border-right: 1px solid var(--border);
   position: relative;
 }
@@ -682,7 +835,7 @@ body {
 }
 
 .result-stat-value {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
   font-family: "JetBrains Mono", monospace;
   color: var(--text);
@@ -716,13 +869,13 @@ body {
 
 /* ── Result card actions (View Routes on Map) ───────────────── */
 .result-card-actions {
-  padding: 10px 16px 14px;
+  padding: 8px 14px 10px;
   border-top: 1px solid var(--border);
 }
 
 .btn-view-routes {
   width: 100%;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: 8px;
   border: 1px solid var(--border2);
   background: var(--surface2);
@@ -738,6 +891,10 @@ body {
 .btn-view-routes:hover {
   color: var(--text);
   border-color: var(--muted);
+}
+
+.btn-view-routes:active {
+  transform: translateY(1px);
 }
 
 .btn-view-routes--active {

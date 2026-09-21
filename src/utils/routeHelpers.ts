@@ -4,7 +4,8 @@
 // greedy solver or resultParser.ts) into the RouteAssignment[] shape
 // consumed by SolverCard.
 
-import type { VehicleRoute, RouteAssignment, CVRPInstance } from "../types/cvrp";
+import type { VehicleRoute, RouteAssignment, CVRPInstance, Node } from "../types/cvrp";
+import { haversineKm } from "./osrm";
 
 // ─────────────────────────────────────────────────────────────────────────
 // resolveCapacity
@@ -49,4 +50,27 @@ export function buildRouteAssignments(
 
 export function computeFleetTotal(routes: VehicleRoute[]): number {
   return routes.reduce((sum, vr) => sum + vr.totalDistance, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// routeDistanceKm
+//
+// Straight-line (haversine) distance for a depot-bookended route, used to
+// recompute a rider's distance after a manual drag-and-drop reorder — the
+// same metric the solvers themselves report as "distance", so a reordered
+// route's number stays comparable to the ones the backend returned.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function routeDistanceKm(
+  route: number[],
+  nodeMap: Map<number, Node>,
+): number {
+  let total = 0;
+  for (let i = 1; i < route.length; i++) {
+    const a = nodeMap.get(route[i - 1]);
+    const b = nodeMap.get(route[i]);
+    if (!a || !b) continue;
+    total += haversineKm([a.lat, a.lng], [b.lat, b.lng]);
+  }
+  return total;
 }

@@ -1,0 +1,786 @@
+/* ─────────────────────────────────────────────────────────────
+   SolverMap.css
+
+   Everything the map pane draws that isn't a Leaflet default:
+   the on-road route strokes, the numbered stop badges, the depot
+   pin, the direction chevrons, the routing-status chip and the
+   map key — plus a dark re-skin of Leaflet's own chrome so the
+   controls stop looking like a white widget dropped onto a dark
+   dashboard.
+
+   Previously these rules lived in an inline <style> element
+   inside SolverMap.tsx, which meant they were re-parsed on every
+   render and couldn't be reasoned about alongside the rest of the
+   app's styling.
+───────────────────────────────────────────────────────────── */
+
+.solver-map-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+
+  /* Own stacking context. Leaflet's controls sit at z-index 800 and the
+     overlay stack below at 700, and `.leaflet-container` creates no stacking
+     context of its own — so without this they could paint over any sibling
+     content stacked above the map inside `.map-section`. Isolating here
+     keeps the whole map — chrome included — beneath whatever that sibling
+     content ends up being. */
+  isolation: isolate;
+  z-index: 0;
+
+  --map-ink: #04101f;
+  --map-panel: rgba(6, 16, 34, 0.94);
+  --map-panel-border: rgba(53, 82, 128, 0.55);
+  --map-text: #eaf2ff;
+  --map-text-soft: #9db6d6;
+  --map-text-faint: #6d87a8;
+  --map-accent: #10e0a1;
+  --map-warn: #f59e0b;
+}
+
+/* Fills the void between tiles while they load, instead of Leaflet's
+   default light grey flashing against the dark dashboard. */
+.solver-map-shell .leaflet-container {
+  background: #060f22;
+  font-family: "Inter", sans-serif;
+  outline: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Route strokes
+───────────────────────────────────────────────────────────── */
+
+/* Colour/opacity eases when the active solver changes or a rider is
+   isolated. Geometry itself still snaps (SVG "d" isn't animatable),
+   but easing the paint turns a hard cut into a transition. */
+.leaflet-overlay-pane path {
+  transition:
+    opacity 0.28s ease,
+    stroke 0.28s ease,
+    stroke-width 0.2s ease;
+}
+
+.route-hit {
+  cursor: pointer;
+}
+
+.route-casing,
+.route-line {
+  animation: routeReveal 0.45s ease-out;
+}
+
+.route-line {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.4));
+}
+
+/* Routes are only mounted once every road path is ready, so they fade in
+   together instead of popping onto the map. */
+@keyframes routeReveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Travelling dots along the isolated route — direction at a glance. */
+.route-flow {
+  stroke-linecap: round;
+  animation: routeFlow 1.4s linear infinite;
+}
+
+@keyframes routeFlow {
+  to {
+    stroke-dashoffset: -17;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Markers
+───────────────────────────────────────────────────────────── */
+
+/* Leaflet's divIcon wrapper: we want the inner element to do all the
+   drawing, with no background or border of its own. */
+.map-pin-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+/* ── Depot ── */
+.depot-pin {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.depot-pin-core {
+  position: relative;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #34f5bb, var(--map-accent));
+  border: 2px solid rgba(2, 13, 36, 0.9);
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(16, 224, 161, 0.35);
+}
+
+.depot-pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(16, 224, 161, 0.28);
+  animation: depotPulse 2.4s ease-out infinite;
+}
+
+@keyframes depotPulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.85;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
+/* ── Numbered stop badge ── */
+.stop-pin {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--stop-color, #40dd8f);
+  border: 2px solid rgba(2, 13, 36, 0.92);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.stop-pin--wide {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.stop-pin span {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--stop-text, #04121f);
+  letter-spacing: -0.02em;
+}
+
+.leaflet-marker-icon:hover > .stop-pin {
+  transform: scale(1.18);
+  box-shadow:
+    0 3px 12px rgba(0, 0, 0, 0.6),
+    0 0 0 3px rgba(255, 255, 255, 0.18);
+}
+
+/* ── Plain order dot (pre-solve, and unassigned orders) ── */
+.order-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--dot-color, #10e0a1);
+  border: 2px solid rgba(2, 13, 36, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: background-color 0.3s ease;
+}
+
+/* ── City label ── */
+/* Has to survive four very different backdrops — the light Street basemap,
+   the dark one, and satellite imagery. A text halo alone can't do that (white
+   type on positron's near-white canvas is unreadable whatever the shadow), so
+   the label carries its own faint slab. Kept low-contrast and letter-spaced so
+   it still reads as basemap furniture rather than as data. */
+.map-city-label {
+  display: block;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(4, 14, 30, 0.55);
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 3px rgba(2, 13, 36, 0.8);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Direction chevron ── */
+.route-arrow {
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 50% 50%;
+}
+
+.route-arrow svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Tooltips & popups
+───────────────────────────────────────────────────────────── */
+
+.leaflet-tooltip.solvermap-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(6, 16, 34, 0.97);
+  border: 1px solid var(--map-panel-border);
+  color: var(--map-text);
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  padding: 7px 10px;
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+}
+
+/* Leaflet draws the tooltip's little pointer as a border triangle on ::before
+   and picks the side via a direction class, so all four need recolouring to
+   the panel background — otherwise the arrow stays Leaflet's default white and
+   hangs off the dark bubble. */
+.leaflet-tooltip-top.solvermap-tooltip::before {
+  border-top-color: rgba(6, 16, 34, 0.97);
+}
+
+.leaflet-tooltip-bottom.solvermap-tooltip::before {
+  border-bottom-color: rgba(6, 16, 34, 0.97);
+}
+
+.leaflet-tooltip-left.solvermap-tooltip::before {
+  border-left-color: rgba(6, 16, 34, 0.97);
+}
+
+.leaflet-tooltip-right.solvermap-tooltip::before {
+  border-right-color: rgba(6, 16, 34, 0.97);
+}
+
+.route-tooltip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--map-text);
+}
+
+.route-tooltip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.route-tooltip-line {
+  color: var(--map-text-soft);
+}
+
+.route-tooltip-line--muted {
+  color: var(--map-text-faint);
+}
+
+.route-tooltip-line--warn {
+  color: var(--map-warn);
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(6, 16, 34, 0.98);
+  color: var(--map-text);
+  border: 1px solid var(--map-panel-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+}
+
+.leaflet-popup-content {
+  margin: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.leaflet-popup-tip {
+  background: rgba(6, 16, 34, 0.98);
+  border: 1px solid var(--map-panel-border);
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--map-text-faint);
+}
+
+.leaflet-container a.leaflet-popup-close-button:hover {
+  color: var(--map-text);
+}
+
+.map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--map-text-soft);
+}
+
+.map-popup strong {
+  color: var(--map-text);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Leaflet chrome, re-skinned for the dark dashboard
+───────────────────────────────────────────────────────────── */
+
+.solver-map-shell .leaflet-bar,
+.solver-map-shell .leaflet-control-layers {
+  border: 1px solid var(--map-panel-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  background: var(--map-panel);
+  backdrop-filter: blur(8px);
+}
+
+.solver-map-shell .leaflet-bar a,
+.solver-map-shell .leaflet-bar a:hover {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  text-align: center;
+  background: transparent;
+  color: var(--map-text-soft);
+  border-bottom: 1px solid rgba(53, 82, 128, 0.35);
+  font-weight: 700;
+}
+
+.solver-map-shell .leaflet-bar a:last-child {
+  border-bottom: 0;
+}
+
+.solver-map-shell .leaflet-bar a:hover {
+  background: rgba(16, 224, 161, 0.14);
+  color: var(--map-accent);
+}
+
+.solver-map-shell .leaflet-bar a.leaflet-disabled {
+  color: #3d5170;
+  background: transparent;
+}
+
+/* Fit + full screen share one bar. The selector is deliberately specific:
+   Leaflet's own `.leaflet-bar a { display: block }` has the same weight as a
+   bare `.solvermap-action a` rule and can win on stylesheet order, which
+   pins the icon to the corner instead of centring it. Both glyphs are inline
+   SVGs using currentColor, so they pick up the same hover tint as the rest of
+   the Leaflet bar. */
+.solver-map-shell .leaflet-bar.solvermap-actions a.solvermap-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  text-indent: 0;
+}
+
+.solver-map-shell .solvermap-actions .solvermap-action svg {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+/* ── Fullscreen ──────────────────────────────────────────────
+   The shell itself is the fullscreen element (so the controls and the overlay
+   stack come with it), which means it has to drop the rounded corners it
+   inherits from `.map-section` and paint its own backdrop — a fullscreen
+   element sits on a black root, not on the dashboard. */
+.solver-map-shell:fullscreen,
+.solver-map-shell:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  background: #060f22;
+}
+
+.solver-map-shell:fullscreen .leaflet-container,
+.solver-map-shell:-webkit-full-screen .leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* There is more room to work with, so the map key can afford to stay open. */
+.solver-map-shell:fullscreen .map-overlay-stack {
+  left: 20px;
+  bottom: 20px;
+  max-width: 380px;
+}
+
+.solver-map-shell .leaflet-control-layers-toggle {
+  background-color: transparent;
+  width: 32px;
+  height: 32px;
+  filter: invert(1) hue-rotate(180deg) brightness(1.4);
+}
+
+.solver-map-shell .leaflet-control-layers-expanded {
+  padding: 10px 12px;
+  color: var(--map-text-soft);
+  font-size: 12px;
+  font-family: "Inter", sans-serif;
+}
+
+.solver-map-shell .leaflet-control-layers-list label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.solver-map-shell .leaflet-control-layers-list label:hover {
+  color: var(--map-text);
+}
+
+.solver-map-shell .leaflet-control-layers-selector {
+  accent-color: var(--map-accent);
+  margin: 0;
+}
+
+.solver-map-shell .leaflet-control-attribution {
+  background: rgba(4, 14, 30, 0.8);
+  color: var(--map-text-faint);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 7px 0 0 0;
+}
+
+.solver-map-shell .leaflet-control-attribution a {
+  color: var(--map-text-soft);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Overlay stack (routing status + map key)
+
+   Sits above the Leaflet panes but stays click-through except on
+   the panels themselves, so the map can still be dragged around it.
+───────────────────────────────────────────────────────────── */
+
+.map-overlay-stack {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(340px, calc(100% - 24px));
+  pointer-events: none;
+}
+
+.map-overlay-stack > * {
+  pointer-events: auto;
+}
+
+/* ── Routing status chip ── */
+.routing-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--map-panel);
+  border: 1px solid var(--map-panel-border);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--map-text-soft);
+  overflow: hidden;
+  animation: mapOverlayIn 0.3s ease both;
+}
+
+.routing-chip-text {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  line-height: 1.35;
+}
+
+.routing-chip-sub,
+.routing-chip-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--map-text-faint);
+  letter-spacing: 0.06em;
+}
+
+.routing-chip-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.routing-chip--ok {
+  border-color: rgba(16, 224, 161, 0.4);
+  color: var(--map-accent);
+}
+
+.routing-chip--warn {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: var(--map-warn);
+  align-items: flex-start;
+}
+
+.routing-chip--warn .routing-chip-text {
+  white-space: normal;
+  color: #fbcf7a;
+  font-weight: 500;
+}
+
+.routing-chip--loading {
+  color: var(--map-text-soft);
+  padding-bottom: 10px;
+}
+
+.routing-chip-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(16, 224, 161, 0.22);
+  border-top-color: var(--map-accent);
+  animation: routingSpin 0.75s linear infinite;
+}
+
+.routing-chip-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(16, 224, 161, 0.14);
+}
+
+.routing-chip-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--map-accent);
+  transition: width 0.35s ease;
+}
+
+.routing-chip-retry {
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: 2px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--map-warn);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.routing-chip-retry:hover {
+  background: var(--map-warn);
+  color: #1c1204;
+}
+
+/* ── Map key ── */
+.map-legend {
+  border-radius: 10px;
+  background: var(--map-panel);
+  border: 1px solid var(--map-panel-border);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  animation: mapOverlayIn 0.35s ease both;
+}
+
+.map-legend-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 11px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--map-text-faint);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.map-legend-toggle:hover {
+  color: var(--map-text-soft);
+}
+
+.map-legend-chevron {
+  font-size: 10px;
+}
+
+.map-legend-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 11px 10px;
+  border-top: 1px solid rgba(53, 82, 128, 0.3);
+  padding-top: 9px;
+}
+
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--map-text-soft);
+}
+
+.map-legend-depot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  background: linear-gradient(145deg, #34f5bb, var(--map-accent));
+  border: 1.5px solid rgba(2, 13, 36, 0.9);
+}
+
+.map-legend-stop {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4bb0d2;
+  border: 1.5px solid rgba(2, 13, 36, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #04121f;
+}
+
+.map-legend-arrow {
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+}
+
+.map-legend-swatch {
+  width: 16px;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 3px solid #4bb0d2;
+  border-radius: 2px;
+}
+
+.map-legend-swatch--dashed {
+  border-top-style: dashed;
+  border-top-color: var(--map-text-faint);
+}
+
+.map-legend-hint {
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--map-text-faint);
+}
+
+/* Local keyframes, so this stylesheet does not depend on the animation
+   names declared in CompareDashboard.css. */
+@keyframes mapOverlayIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes routingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Responsive & motion preferences
+───────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .map-overlay-stack {
+    left: 8px;
+    bottom: 8px;
+    max-width: calc(100% - 16px);
+  }
+
+  .map-legend {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-flow,
+  .route-casing,
+  .route-line,
+  .depot-pin-pulse,
+  .routing-chip-spinner {
+    animation: none;
+  }
+
+  .depot-pin-pulse {
+    opacity: 0.25;
+    transform: scale(1);
+  }
+
+  .leaflet-overlay-pane path {
+    transition: none;
+  }
+}
