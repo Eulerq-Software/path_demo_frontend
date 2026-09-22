@@ -3,6 +3,8 @@ import { create } from "zustand";
 import type {
   Node,
   CVRPInstance,
+  FleetSizingInstance,
+  OptimizationMode,
   InputMode,
   BaselineName,
   SolveMetrics,
@@ -14,6 +16,10 @@ interface ComparisonStore {
   inputMode: InputMode;
   setInputMode: (mode: InputMode) => void;
 
+
+  optimizationMode: OptimizationMode;
+  setOptimizationMode: (mode: OptimizationMode) => void;
+
   baselineSolver: BaselineName;
   setBaselineSolver: (solver: BaselineName) => void;
 
@@ -22,6 +28,10 @@ interface ComparisonStore {
 
   instance: CVRPInstance | null;
   setInstance: (instance: CVRPInstance | null) => void;
+
+  // Populated instead of `instance` when optimizationMode === "riders".
+  sizingInstance: FleetSizingInstance | null;
+  setSizingInstance: (instance: FleetSizingInstance | null) => void;
 
   hasResults: boolean;
 
@@ -67,9 +77,11 @@ interface ComparisonStore {
 
 const INITIAL_STATE = {
   inputMode: "generate" as InputMode,
+  optimizationMode: "distance" as OptimizationMode,
   baselineSolver: "greedy" as BaselineName,
   nodes: [] as Node[],
   instance: null,
+  sizingInstance: null as FleetSizingInstance | null,
   hasResults: false,
   greedyRoutes: null,
   greedyAssignments: null,
@@ -87,11 +99,15 @@ export const useComparisonStore = create<ComparisonStore>((set) => ({
 
   setInputMode: (mode) => set({ inputMode: mode }),
 
+  setOptimizationMode: (mode) => set({ optimizationMode: mode }),
+
   setBaselineSolver: (solver) => set({ baselineSolver: solver }),
 
   setNodes: (nodes) => set({ nodes }),
 
   setInstance: (instance) => set({ instance }),
+
+  setSizingInstance: (instance) => set({ sizingInstance: instance }),
 
   setGreedyRoutes: (routes) => set({ greedyRoutes: routes }),
   setGreedyAssignments: (assignments) => set({ greedyAssignments: assignments }),
@@ -133,7 +149,8 @@ export const useComparisonStore = create<ComparisonStore>((set) => ({
 
   setSolveError: (error) => set({ solveError: error }),
 
-  resetAll: () => set({ ...INITIAL_STATE }),
+  resetAll: () =>
+    set((state) => ({ ...INITIAL_STATE, optimizationMode: state.optimizationMode })),
 }));
 
 export const selectActiveBaselineRoutes = (

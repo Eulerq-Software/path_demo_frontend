@@ -20,17 +20,22 @@ import {
   buildInstanceFromLocations,
 } from "../utils/excelParser";
 
-import type { GenerateParams, ExcelParseResult } from "../types/cvrp";
+import { useComparisonStore } from "../state/useComparisonStore";
+
+import type {
+  GenerateParams,
+  GenerateSizingParams,
+  ExcelParseResult,
+} from "../types/cvrp";
 
 type Props = {
   onGenerate: (params: GenerateParams) => void;
+  onGenerateSizing: (params: GenerateSizingParams) => void;
   onRunComparison: () => void;
   onUploadParsed: (result: ExcelParseResult) => void;
   hasGenerated: boolean;
   isRunning: boolean;
 };
-
-type OptimizationMode = "distance" | "riders";
 
 const DEPOT_LABEL = "Bangalore (Center)";
 const DEPOT_LAT = 12.9716;
@@ -169,6 +174,7 @@ function CollapsibleSection({
 
 export default function Mode({
   onGenerate,
+  onGenerateSizing,
   onRunComparison,
   onUploadParsed,
   hasGenerated,
@@ -178,8 +184,8 @@ export default function Mode({
   const [isParsing, setIsParsing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
-  const [optimizationMode, setOptimizationMode] =
-    useState<OptimizationMode>("distance");
+  const optimizationMode = useComparisonStore((s) => s.optimizationMode);
+  const setOptimizationMode = useComparisonStore((s) => s.setOptimizationMode);
 
   const [numOrders, setNumOrders] = useState(20);
   const [numRiders, setNumRiders] = useState(5);
@@ -250,16 +256,25 @@ export default function Mode({
     setErrors(fieldErrors);
     if (Object.keys(fieldErrors).length > 0) return;
 
-    const effectiveNumRiders = isRidersMode ? RIDERS_MAX : numRiders;
+    if (isRidersMode) {
+      // /solve/sizing takes a single homogeneous capacity, not a per-vehicle
+      // list — Rider Settings is hidden in this mode, so fall back to the
+      // midpoint of the (unedited) capacity range as that one value.
+      const sizingParams: GenerateSizingParams = {
+        numPickups: numOrders,
+        pickupLoad: buildRangeValues(numOrders, loadMin, loadMax),
+        vehicleCapacity: averageCapacity,
+        maxRouteTimeSeconds: availableTimeHours * 3600,
+      };
+
+      onGenerateSizing(sizingParams);
+      return;
+    }
 
     const params: GenerateParams = {
-      numVehicles: effectiveNumRiders,
+      numVehicles: numRiders,
       numPickups: numOrders,
-      vehicleCapacity: buildRangeValues(
-        effectiveNumRiders,
-        capacityMin,
-        capacityMax,
-      ),
+      vehicleCapacity: buildRangeValues(numRiders, capacityMin, capacityMax),
       pickupLoad: buildRangeValues(numOrders, loadMin, loadMax),
     };
 

@@ -8,8 +8,8 @@ import Mode from "../components/Mode";
 import RouteDetailsPanel from "../components/RouteDetailsPanel";
 import { useComparisonStore } from "../state/useComparisonStore";
 import { useRoadRoutes, type RoadRoutesState } from "../hooks/useRoadRoutes";
-import { generateInstance } from "../utils/generator";
-import { solveCVRP, SolveApiError, SOLVER_LABELS } from "../utils/api";
+import { generateInstance, generateFleetSizingInstance } from "../utils/generator";
+import { solveCVRP, solveCVRPSizing, SolveApiError, SOLVER_LABELS } from "../utils/api";
 import { parseSolveRoutes } from "../utils/resultParser";
 import { buildRouteAssignments, routeDistanceKm } from "../utils/routeHelpers";
 import type {
@@ -17,8 +17,11 @@ import type {
   RouteAssignment,
   ExcelParseResult,
   GenerateParams,
+  GenerateSizingParams,
+  CVRPInstance,
   BackendSolverName,
   SolveResponse,
+  FleetSizingSolveResponse,
 } from "../types/cvrp";
 import "./CompareDashboard.css";
 
@@ -141,6 +144,8 @@ export default function CompareDashboard() {
   const {
     nodes,
     instance,
+    optimizationMode,
+    sizingInstance,
     greedyRoutes,
     greedyAssignments,
     orToolsRoutes,
@@ -148,6 +153,7 @@ export default function CompareDashboard() {
     eulerqRoutes,
     eulerqAssignments,
     setInstance,
+    setSizingInstance,
     setNodes,
     setGreedyRoutes,
     setGreedyAssignments,
@@ -208,7 +214,8 @@ export default function CompareDashboard() {
   // land should pull the map/panel away from the empty "waiting" state.
   const firstFinishRef = useRef(false);
 
-  const hasGenerated = instance !== null;
+  const hasGenerated =
+    optimizationMode === "riders" ? sizingInstance !== null : instance !== null;
 
   useEffect(() => {
     const check = () => setShowSmallScreen(window.innerWidth < 1024);
@@ -269,6 +276,40 @@ export default function CompareDashboard() {
     [setInstance, setNodes, resetAll],
   );
 
+  const handleGenerateSizing = useCallback(
+    (params: GenerateSizingParams) => {
+      const result = generateFleetSizingInstance(params);
+      const blockingErrors = result.errors.filter(
+        (e) => !e.message.startsWith("Warning"),
+      );
+
+      if (blockingErrors.length > 0) {
+        blockingErrors.forEach((e) => notifyError(e.message));
+        return;
+      }
+
+      result.errors
+        .filter((e) => e.message.startsWith("Warning"))
+        .forEach((e) => notifyWarn(e.message));
+
+      resetAll();
+      setResponses({});
+      setOriginalRoutes({});
+      setOriginalAssignments({});
+      setResultsViewActive(false);
+      setActiveMapVehicle(null);
+      setActiveMapSolver(null);
+
+      setNodes(result.nodes);
+      setSizingInstance(result.instance);
+
+      notifySuccess(
+        `Generated ${result.instance.customers.length} order(s) — solver will size the fleet.`,
+      );
+    },
+    [setSizingInstance, setNodes, resetAll],
+  );
+
   // ─────────────────────────────────────────────────────────────
   // Upload handler
   // ─────────────────────────────────────────────────────────────
@@ -312,10 +353,12 @@ export default function CompareDashboard() {
 
   const handleRunComparison = useCallback(async () => {
     const state = useComparisonStore.getState();
+    const mode = state.optimizationMode;
     const currentInstance = state.instance;
+    const currentSizingInstance = state.sizingInstance;
     const currentBaseline = state.baselineSolver;
 
-    if (!currentInstance) {
+    if (mode === "riders" ? !currentSizingInstance : !currentInstance) {
       notifyError("Generate or upload data first.");
       return;
     }
@@ -349,24 +392,55 @@ export default function CompareDashboard() {
       return err instanceof Error ? err.message : "Unknown solver error.";
     }
 
+    // In fixed-fleet mode every solver shares the same vehicle list, so
+    // assignments can be built against currentInstance directly. In sizing
+    // mode each solver picks its own fleet size, so there's no fixed
+    // vehicles[] to hand buildRouteAssignments — this reconstructs one
+    // per response, using the vehicle ids the solver actually returned and
+    // the single homogeneous capacity the request was built with.
+    function assignmentInstanceFor(
+      solver: BackendSolverName,
+      response: SolveResponse,
+    ): CVRPInstance {
+      if (mode !== "riders") return currentInstance as CVRPInstance;
+
+      const sizing = currentSizingInstance!;
+      const vehicleIds = Array.from(
+        new Set(response.routes.map((r) => r.vehicle_id)),
+      );
+      return {
+        depot: sizing.depot,
+        customers: sizing.customers,
+        vehicles: vehicleIds.map((id) => ({
+          id,
+          capacity: sizing.vehicleCapacity,
+        })),
+      };
+    }
+
     try {
-      // Same instance, sent to all three solvers in parallel — one
-      // solveCVRP call per solver, fired together via the same array of
-      // promises. Promise.allSettled (rather than Promise.all) only
-      // changes how we react to the results afterward: a single solver
-      // failing no longer discards the other two, which may have already
-      // succeeded. Each solver also updates its own store/response/status
-      // the moment *it* resolves, rather than waiting for the whole batch —
-      // that's what lets the fastest solver's card (usually Greedy) pop in
-      // and take over the map while the other two are still spinning.
+      // Same instance, sent to all three solvers in parallel — one solve
+      // call per solver, fired together via the same array of promises.
+      // Promise.allSettled (rather than Promise.all) only changes how we
+      // react to the results afterward: a single solver failing no longer
+      // discards the other two, which may have already succeeded. Each
+      // solver also updates its own store/response/status the moment *it*
+      // resolves, rather than waiting for the whole batch — that's what
+      // lets the fastest solver's card (usually Greedy) pop in and take
+      // over the map while the other two are still spinning.
       const settled = await Promise.allSettled(
-        SOLVER_ORDER.map((solver) =>
-          solveCVRP(currentInstance, solver)
+        SOLVER_ORDER.map((solver) => {
+          const solvePromise: Promise<SolveResponse | FleetSizingSolveResponse> =
+            mode === "riders"
+              ? solveCVRPSizing(currentSizingInstance!, solver)
+              : solveCVRP(currentInstance!, solver);
+
+          return solvePromise
             .then((response) => {
               const routes = parseSolveRoutes(response.routes);
               const assignments = buildRouteAssignments(
                 routes,
-                currentInstance,
+                assignmentInstanceFor(solver, response),
               );
 
               if (solver === "greedy") {
@@ -410,8 +484,8 @@ export default function CompareDashboard() {
               setSolverErrors((prev) => ({ ...prev, [solver]: message }));
               console.error(`[RunComparison] ${solver} failed`, err);
               throw err;
-            }),
-        ),
+            });
+        }),
       );
 
       // Everything has already landed on its own card as it finished; this
@@ -839,6 +913,7 @@ export default function CompareDashboard() {
         {!resultsViewActive ? (
           <Mode
             onGenerate={handleGenerate}
+            onGenerateSizing={handleGenerateSizing}
             onRunComparison={handleRunComparison}
             onUploadParsed={handleUploadParsed}
             hasGenerated={hasGenerated}

@@ -5,6 +5,8 @@ import type {
   VehicleIn,
   CVRPInstance,
   GenerateParams,
+  FleetSizingInstance,
+  GenerateSizingParams,
   ValidationError,
 } from "../types/cvrp";
 import BANGALORE_LOCATIONS_CSV from "../data/bangalore_locations.csv?raw";
@@ -266,6 +268,92 @@ export function generateInstance(params: GenerateParams): GenerateResult {
 
   const errors = validateInstance(vehicles, customers);
   const instance: CVRPInstance = { depot, customers, vehicles };
+
+  return { nodes, instance, errors };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// generateFleetSizingInstance — "Minimum Riders" mode.
+// ─────────────────────────────────────────────────────────────────────────
+
+export function validateSizingInstance(
+  customers: CustomerIn[],
+  vehicleCapacity: number,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  if (customers.length === 0) {
+    errors.push({ field: "customers", message: "Customers cannot be empty." });
+  }
+
+  if (vehicleCapacity <= 0) {
+    errors.push({
+      field: "vehicleCapacity",
+      message: "Vehicle capacity must be a positive number.",
+    });
+  }
+
+  const maxDemand = customers.reduce((m, c) => Math.max(m, c.demand), 0);
+  if (customers.length > 0 && maxDemand > vehicleCapacity) {
+    errors.push({
+      field: "capacity",
+      message:
+        "Warning: at least one order's weight exceeds vehicle capacity — that order can never be assigned.",
+    });
+  }
+
+  return errors;
+}
+
+export interface GenerateSizingResult {
+  nodes: Node[];
+  instance: FleetSizingInstance;
+  errors: ValidationError[];
+}
+
+export function generateFleetSizingInstance(
+  params: GenerateSizingParams,
+): GenerateSizingResult {
+  const { numPickups, pickupLoad, vehicleCapacity, maxRouteTimeSeconds } =
+    params;
+
+  const depot: LocationIn = {
+    id: DEPOT_ID,
+    lat: DEPOT_LAT,
+    lon: DEPOT_LNG,
+    name: "Depot",
+  };
+
+  const pickupLocations = pickRealLocations(numPickups);
+
+  const customers: CustomerIn[] = pickupLocations.map((loc, i) => ({
+    id: i + 1,
+    lat: loc.lat,
+    lon: loc.lng,
+    demand: pickupLoad[i] ?? 0,
+    name: loc.name,
+  }));
+
+  const nodes: Node[] = [
+    { id: DEPOT_ID, type: "depot", lat: depot.lat, lng: depot.lon, demand: 0 },
+    ...customers.map(
+      (c): Node => ({
+        id: c.id,
+        type: "pickup",
+        lat: c.lat,
+        lng: c.lon,
+        demand: c.demand,
+      }),
+    ),
+  ];
+
+  const errors = validateSizingInstance(customers, vehicleCapacity);
+  const instance: FleetSizingInstance = {
+    depot,
+    customers,
+    vehicleCapacity,
+    maxRouteTimeSeconds,
+  };
 
   return { nodes, instance, errors };
 }
