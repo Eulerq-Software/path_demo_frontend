@@ -10,6 +10,9 @@ import type {
 } from "../types/cvrp";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const TIME_LIMIT = import.meta.env.VITE_SOLVER_TIME_LIMIT_SECONDS
+    ? parseFloat(import.meta.env.VITE_SOLVER_TIME_LIMIT_SECONDS)
+    : 30.0
 
 // Backend split the old single POST /solve into two endpoints:
 //   /solve/fixed  - explicit vehicle list (Route Optimization mode)
@@ -19,7 +22,7 @@ const SOLVE_FIXED_PATH = "/solve/fixed";
 const SOLVE_SIZING_PATH = "/solve/sizing";
 
 const DEFAULT_CONFIG: SolverConfigIn = {
-  time_limit_seconds: 20.0,
+  time_limit_seconds: TIME_LIMIT,
   seed: 42,
   display: false,
   collect_stats: true,
