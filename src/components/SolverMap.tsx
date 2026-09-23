@@ -38,7 +38,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RiAlertLine } from "react-icons/ri";
+import { RiAlertLine, RiCheckLine } from "react-icons/ri";
 
 import type { Node, VehicleRoute } from "../types/cvrp";
 import type { RoadRouteEntry, RoadRoutesPhase } from "../hooks/useRoadRoutes";
@@ -712,6 +712,13 @@ export default function SolverMap({
   const selected = drawables.find((d) => d.isSelected) ?? null;
   const hasFallback = drawables.some((d) => d.source === "straight");
 
+  // With a rider selected, every other route drops out entirely (no faded
+  // casing/line, no hit layer to click) rather than just dimming — switching
+  // riders goes through the sidebar list or the "Route Details" panel instead.
+  const visibleDrawables = selected
+    ? drawables.filter((d) => d.isSelected)
+    : drawables;
+
   // ── Direction arrows ───────────────────────────────────────
   // Heavily thinned when nothing is selected (20 routes' worth of arrows is
   // noise, not information) and generous on the one route being inspected.
@@ -818,15 +825,15 @@ export default function SolverMap({
           />
         )}
 
-        {/* Pass 1 — invisible, wide hit layer for every route.
+        {/* Pass 1 — invisible, wide hit layer for every visible route.
             The visible strokes are thin, so hovering or clicking right on the
             line would be fiddly. This layer carries the tooltip and the click
-            handler instead. `interactive` stays true for dimmed routes on
-            purpose — hovering a faded line is how you find the rider you
-            actually wanted, and clicking it switches to that rider. (It also
-            has to be constant: react-leaflet only reads `interactive` when the
-            layer is constructed, never on update.) */}
-        {drawables.map((drawable) => (
+            handler instead. Only ever covers `visibleDrawables` — once a
+            rider is selected, every other route is gone from the map, so
+            there's nothing here to click back onto. (It also has to be
+            constant: react-leaflet only reads `interactive` when the layer
+            is constructed, never on update.) */}
+        {visibleDrawables.map((drawable) => (
           <Polyline
             key={`hit-${drawable.vehicleId}`}
             positions={drawable.positions}
@@ -881,8 +888,8 @@ export default function SolverMap({
           </Polyline>
         ))}
 
-        {/* Pass 2 — dark casing for every route, under every coloured line. */}
-        {drawables.map((drawable) => (
+        {/* Pass 2 — dark casing for every visible route, under its line. */}
+        {visibleDrawables.map((drawable) => (
           <Polyline
             key={`casing-${drawable.vehicleId}`}
             positions={drawable.positions}
@@ -890,7 +897,7 @@ export default function SolverMap({
             pathOptions={{
               color: "#02101f",
               weight: drawable.isSelected ? 8.5 : 6,
-              opacity: drawable.isDimmed ? 0.14 : 0.45,
+              opacity: 0.45,
               lineCap: "round",
               lineJoin: "round",
               className: "route-casing",
@@ -899,7 +906,7 @@ export default function SolverMap({
         ))}
 
         {/* Pass 3 — the coloured line itself, on top of every casing. */}
-        {drawables.map((drawable) => (
+        {visibleDrawables.map((drawable) => (
           <Polyline
             key={`line-${drawable.vehicleId}-${drawable.source}`}
             positions={drawable.positions}
@@ -907,7 +914,7 @@ export default function SolverMap({
             pathOptions={{
               color: drawable.color,
               weight: drawable.isSelected ? 5 : 3.2,
-              opacity: drawable.isDimmed ? 0.2 : 0.95,
+              opacity: 0.95,
               dashArray:
                 drawable.source === "road" ? drawable.dashArray : "8 6",
               lineCap: "round",
@@ -946,11 +953,15 @@ export default function SolverMap({
           />
         ))}
 
-        {/* Orders — plain dots before a solve, numbered stop badges after */}
+        {/* Orders — plain dots before a solve, numbered stop badges after.
+            Once a rider is selected, every other rider's stops drop out of
+            the map entirely (same treatment as their routes) instead of
+            just fading. */}
         {orders.map((order) => {
           const hit = stopIndex.get(order.id);
-          const dimmed =
+          const belongsToOther =
             hasResults && selectedIdx !== null && hit?.vehicleIdx !== selectedIdx;
+          if (belongsToOther) return null;
 
           // Numbers when the map can carry them: few enough orders overall,
           // or this stop belongs to the rider currently isolated.
@@ -971,8 +982,8 @@ export default function SolverMap({
               key={order.id}
               position={[order.lat, order.lng]}
               icon={icon}
-              opacity={dimmed ? 0.25 : 1}
-              zIndexOffset={dimmed ? 300 : 1000}
+              opacity={1}
+              zIndexOffset={1000}
             >
               <Tooltip
                 direction="top"
@@ -1155,16 +1166,7 @@ function RoutingStatusChip({
 
   return (
     <div className="routing-chip routing-chip--ok" role="status">
-      <svg viewBox="0 0 16 16" className="routing-chip-icon" aria-hidden="true">
-        <path
-          d="M3 8.6 6.2 11.8 13 5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <RiCheckLine className="routing-chip-icon" aria-hidden="true" />
       <span className="routing-chip-text">
         On-road routes
         <span className="routing-chip-sub">via OSRM</span>

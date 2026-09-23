@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Toaster, toast } from "react-hot-toast";
-import { RiErrorWarningLine, RiLoader4Line } from "react-icons/ri";
+import { RiAlertLine, RiErrorWarningLine, RiLoader4Line } from "react-icons/ri";
 import Topbar from "../components/Topbar";
 import AboutModal from "../components/AboutModal";
 import SolverMap from "../components/SolverMap";
@@ -75,7 +75,11 @@ function notifyError(message: string, opts?: { duration?: number }) {
 }
 
 function notifyWarn(message: string, opts?: { duration?: number }) {
-  toast(message, { style: T.warn, icon: "⚠️", ...opts });
+  toast(message, {
+    style: T.warn,
+    icon: <RiAlertLine style={{ color: "#F59E0B", fontSize: 18 }} />,
+    ...opts,
+  });
 }
 
 // Per-solver progress, driving each result card's body (skeleton while
@@ -856,7 +860,9 @@ export default function CompareDashboard() {
               animation: "modalPop 0.35s cubic-bezier(0.34,1.56,0.64,1) both",
             }}
           >
-            <div style={{ fontSize: 36, marginBottom: 16 }}>⚠️</div>
+            <div style={{ marginBottom: 16 }}>
+              <RiAlertLine style={{ fontSize: 36, color: "#F59E0B" }} />
+            </div>
             <div
               style={{
                 fontSize: 16,
@@ -932,6 +938,14 @@ export default function CompareDashboard() {
             roadRoutes={frozenRoadRouting.byVehicle}
             routingPhase={frozenRoadRouting.phase}
             onReorderStops={handleReorderStops}
+            originalAssignments={
+              activeMapSolver
+                ? (originalAssignments[activeMapSolver] ?? [])
+                : []
+            }
+            liveAssignments={liveAssignmentsForActiveSolver}
+            liveRoadRoutes={roadRouting.byVehicle}
+            liveRoutingPhase={roadRouting.phase}
             emptyMessage={
               !activeMapSolver
                 ? "Waiting for the first solver to finish…"
@@ -1124,7 +1138,7 @@ export default function CompareDashboard() {
                         <button
                           className={`btn-view-routes ${
                             isActive && !hasError ? "btn-view-routes--active" : ""
-                          }`}
+                          } ${isPending ? "btn-view-routes--pending" : ""}`}
                           onClick={() => handleViewRoutes(s.key)}
                           disabled={hasError || isPending}
                           aria-disabled={hasError || isPending}

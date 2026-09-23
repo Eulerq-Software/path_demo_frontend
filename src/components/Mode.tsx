@@ -11,6 +11,9 @@ import {
   RiMapPin2Line,
   RiArrowDownSLine,
   RiInformationLine,
+  RiMotorbikeLine,
+  RiTaxiLine,
+  RiWeightLine,
 } from "react-icons/ri";
 
 import ExcelUploadModal from "./ExcelUploadModal";
@@ -48,10 +51,55 @@ const RIDERS_MAX = 50;
 const TIME_MIN = 1;
 const TIME_MAX = 12;
 
+/*
+ * ------------------------------------------------------------
+ * Vehicle types
+ * Picking a vehicle type fixes the per-rider capacity and bounds
+ * the order-weight range to what that vehicle can realistically
+ * carry — Rider Settings and Order Settings below key off whichever
+ * type is currently selected.
+ * ------------------------------------------------------------
+ */
+
+type VehicleType = "two_wheeler" | "three_wheeler";
+
+const VEHICLE_TYPE_CONFIG: Record<
+  VehicleType,
+  {
+    label: string;
+    subtitle: string;
+    capacityKg: number;
+    loadMin: number;
+    loadMax: number;
+  }
+> = {
+  two_wheeler: {
+    label: "Two Wheeler",
+    subtitle: "Bikes & scooters for light, fast drops",
+    capacityKg: 20,
+    loadMin: 1,
+    loadMax: 3,
+  },
+  three_wheeler: {
+    label: "Three Wheeler",
+    subtitle: "Autos & cargo trikes for bulk loads",
+    capacityKg: 500,
+    loadMin: 1,
+    loadMax: 10,
+  },
+};
+
+const VEHICLE_TYPES = Object.keys(VEHICLE_TYPE_CONFIG) as VehicleType[];
+
+const VEHICLE_TYPE_ICONS: Record<VehicleType, typeof RiMotorbikeLine> = {
+  two_wheeler: RiMotorbikeLine,
+  three_wheeler: RiTaxiLine,
+};
+
+// Bounds for the opt-in "Custom Capacity" range — generous enough to cover
+// either vehicle type once a user overrides the fixed value.
 const CAPACITY_FLOOR = 1;
-const CAPACITY_CEIL = 100;
-const LOAD_FLOOR = 1;
-const LOAD_CEIL = 50;
+const CAPACITY_CEIL = 1000;
 
 type FieldErrors = {
   orders?: string;
@@ -167,7 +215,19 @@ function CollapsibleSection({
           className={`mode-collapsible-chevron ${open ? "is-open" : ""}`}
         />
       </button>
-      {open && <div className="mode-collapsible-body">{children}</div>}
+      {/* Always mounted — a `grid-template-rows` transition (0fr <-> 1fr)
+          animates the height smoothly without measuring pixels, and keeps
+          the body's own internal state (e.g. slider drag) alive across
+          collapses instead of unmounting it. */}
+      <div
+        className={`mode-collapsible-panel ${
+          open ? "mode-collapsible-panel--open" : ""
+        }`}
+      >
+        <div className="mode-collapsible-panel-inner">
+          <div className="mode-collapsible-body">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -187,21 +247,20 @@ export default function Mode({
   const optimizationMode = useComparisonStore((s) => s.optimizationMode);
   const setOptimizationMode = useComparisonStore((s) => s.setOptimizationMode);
 
+  const [vehicleType, setVehicleType] = useState<VehicleType>("two_wheeler");
+  const activeVehicleConfig = VEHICLE_TYPE_CONFIG[vehicleType];
+
   const [numOrders, setNumOrders] = useState(20);
   const [numRiders, setNumRiders] = useState(5);
   const [availableTimeHours, setAvailableTimeHours] = useState(4);
-  const [trafficConsideration, setTrafficConsideration] = useState(true);
-  const [capacityMin, setCapacityMin] = useState(30);
-  const [capacityMax, setCapacityMax] = useState(50);
-  const [loadMin, setLoadMin] = useState(1);
-  const [loadMax, setLoadMax] = useState(10);
-  const [distanceType, setDistanceType] = useState<"osrm" | "haversine">(
-    "osrm",
-  );
+  const [capacityMin, setCapacityMin] = useState(activeVehicleConfig.capacityKg);
+  const [capacityMax, setCapacityMax] = useState(activeVehicleConfig.capacityKg);
+  const [loadMin, setLoadMin] = useState(activeVehicleConfig.loadMin);
+  const [loadMax, setLoadMax] = useState(activeVehicleConfig.loadMax);
+  const [customCapacityEnabled, setCustomCapacityEnabled] = useState(false);
 
   const [riderSettingsOpen, setRiderSettingsOpen] = useState(true);
   const [orderSettingsOpen, setOrderSettingsOpen] = useState(true);
-  const [advancedOpen, setAdvancedOpen] = useState(true);
 
   const [errors, setErrors] = useState<FieldErrors>({});
 
@@ -209,6 +268,33 @@ export default function Mode({
 
   const averageCapacity = (capacityMin + capacityMax) / 2;
   const averageLoad = (loadMin + loadMax) / 2;
+
+  function handleVehicleTypeChange(type: VehicleType) {
+    if (type === vehicleType) return;
+    const cfg = VEHICLE_TYPE_CONFIG[type];
+    setVehicleType(type);
+    setCapacityMin(cfg.capacityKg);
+    setCapacityMax(cfg.capacityKg);
+    setLoadMin(cfg.loadMin);
+    setLoadMax(cfg.loadMax);
+    // A custom range from the old vehicle type would be meaningless (or
+    // outright wrong) for the new one — start fixed again and let the user
+    // re-enable the override deliberately if they still want one.
+    setCustomCapacityEnabled(false);
+    setErrors((prev) => ({ ...prev, capacity: undefined, load: undefined }));
+  }
+
+  function handleToggleCustomCapacity() {
+    setCustomCapacityEnabled((prev) => {
+      const next = !prev;
+      if (!next) {
+        setCapacityMin(activeVehicleConfig.capacityKg);
+        setCapacityMax(activeVehicleConfig.capacityKg);
+        setErrors((current) => ({ ...current, capacity: undefined }));
+      }
+      return next;
+    });
+  }
 
   /*
    * ------------------------------------------------------------
@@ -233,7 +319,7 @@ export default function Mode({
       }
     }
 
-    if (!isRidersMode && (capacityMin <= 0 || capacityMax < capacityMin)) {
+    if (capacityMin <= 0 || capacityMax < capacityMin) {
       next.capacity = "Capacity range is invalid.";
     }
     if (loadMin <= 0 || loadMax < loadMin) {
@@ -378,6 +464,36 @@ export default function Mode({
         </div> */}
 
         <div className="mode-body">
+          <div className="mode-field-group">
+            <span className="mode-section-label">Vehicle Type</span>
+            <div className="mode-vehicle-toggle">
+              {VEHICLE_TYPES.map((type) => {
+                const cfg = VEHICLE_TYPE_CONFIG[type];
+                const Icon = VEHICLE_TYPE_ICONS[type];
+                const isActive = vehicleType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    className={`mode-vehicle-card ${
+                      isActive ? "mode-vehicle-card--active" : ""
+                    }`}
+                    onClick={() => handleVehicleTypeChange(type)}
+                  >
+                    <span className="mode-vehicle-badge">
+                      {cfg.capacityKg} KG
+                    </span>
+                    <Icon className="mode-vehicle-icon" />
+                    <span className="mode-vehicle-title">{cfg.label}</span>
+                    <span className="mode-vehicle-subtitle">
+                      {cfg.subtitle}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="mode-field-group">
             <span className="mode-section-label">Optimization Mode</span>
             <div className="mode-optimization-toggle">
@@ -524,74 +640,139 @@ export default function Mode({
             )}
           </div>
 
-          {!isRidersMode && (
-            <CollapsibleSection
-              title="Rider Settings"
-              open={riderSettingsOpen}
-              onToggle={() => setRiderSettingsOpen((v) => !v)}
-            >
-              <span className="field-label">Capacity Range (kg)</span>
-              <div className="mode-range-row">
-                <input
-                  type="number"
-                  className="field-input mode-range-input"
-                  value={capacityMin}
-                  min={CAPACITY_FLOOR}
-                  max={capacityMax}
-                  onChange={(e) =>
-                    setCapacityMin(Number(e.target.value) || CAPACITY_FLOOR)
-                  }
-                />
-                <RangeSlider
-                  min={CAPACITY_FLOOR}
-                  max={CAPACITY_CEIL}
-                  valueMin={capacityMin}
-                  valueMax={capacityMax}
-                  onChange={(nextMin, nextMax) => {
-                    setCapacityMin(nextMin);
-                    setCapacityMax(nextMax);
-                  }}
-                />
-                <input
-                  type="number"
-                  className="field-input mode-range-input"
-                  value={capacityMax}
-                  min={capacityMin}
-                  max={CAPACITY_CEIL}
-                  onChange={(e) =>
-                    setCapacityMax(Number(e.target.value) || CAPACITY_CEIL)
-                  }
+          <CollapsibleSection
+            title="Rider Capacity"
+            open={riderSettingsOpen}
+            onToggle={() => setRiderSettingsOpen((v) => !v)}
+          >
+            <div className="mode-field-row mode-toggle-row">
+              <div className="mode-field-row">
+                <span className="field-label">Custom Capacity</span>
+                <RiInformationLine
+                  className="mode-info-icon"
+                  title="Override the vehicle type's fixed capacity with your own range."
                 />
               </div>
-              {errors.capacity && (
-                <span className="field-error">{errors.capacity}</span>
-              )}
-              <span className="mode-field-subtext">
-                Average Capacity: {averageCapacity.toFixed(1)} kg
-              </span>
-            </CollapsibleSection>
-          )}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={customCapacityEnabled}
+                className={`mode-toggle-switch ${
+                  customCapacityEnabled ? "mode-toggle-switch--on" : ""
+                }`}
+                onClick={handleToggleCustomCapacity}
+              >
+                <span className="mode-toggle-thumb" />
+              </button>
+            </div>
+
+            {/* Keyed so React remounts on swap — replays the fade/slide-in
+                instead of the new panel just popping into place. */}
+            {customCapacityEnabled ? (
+              <div key="custom" className="mode-capacity-panel">
+                <span className="field-label">Capacity Range (kg)</span>
+                <div className="mode-range-row">
+                  <input
+                    type="number"
+                    className="field-input mode-range-input"
+                    value={capacityMin}
+                    min={CAPACITY_FLOOR}
+                    max={capacityMax}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value) || CAPACITY_FLOOR;
+                      setCapacityMin(
+                        Math.min(Math.max(raw, CAPACITY_FLOOR), capacityMax),
+                      );
+                    }}
+                  />
+                  <RangeSlider
+                    min={CAPACITY_FLOOR}
+                    max={CAPACITY_CEIL}
+                    valueMin={capacityMin}
+                    valueMax={capacityMax}
+                    onChange={(nextMin, nextMax) => {
+                      setCapacityMin(nextMin);
+                      setCapacityMax(nextMax);
+                    }}
+                  />
+                  <input
+                    type="number"
+                    className="field-input mode-range-input"
+                    value={capacityMax}
+                    min={capacityMin}
+                    max={CAPACITY_CEIL}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value) || CAPACITY_CEIL;
+                      setCapacityMax(
+                        Math.max(Math.min(raw, CAPACITY_CEIL), capacityMin),
+                      );
+                    }}
+                  />
+                </div>
+                {errors.capacity && (
+                  <span className="field-error">{errors.capacity}</span>
+                )}
+                <span className="mode-field-subtext">
+                  Average Capacity: {averageCapacity.toFixed(1)} kg
+                </span>
+              </div>
+            ) : (
+              <div key="fixed" className="mode-capacity-panel">
+                <span className="field-label">Capacity per Rider</span>
+                <div className="mode-fixed-capacity">
+                  <div className="mode-fixed-capacity-icon">
+                    <RiWeightLine />
+                  </div>
+                  <div className="mode-fixed-capacity-body">
+                    <span className="mode-fixed-capacity-value">
+                      {activeVehicleConfig.capacityKg}
+                      <span className="mode-fixed-capacity-unit"> kg</span>
+                    </span>
+                    <span className="mode-fixed-capacity-note">
+                      Fixed for {activeVehicleConfig.label}s — turn on
+                      Custom Capacity to set your own range.
+                    </span>
+                  </div>
+                </div>
+                {errors.capacity && (
+                  <span className="field-error">{errors.capacity}</span>
+                )}
+              </div>
+            )}
+          </CollapsibleSection>
 
           <CollapsibleSection
             title="Order Settings"
             open={orderSettingsOpen}
             onToggle={() => setOrderSettingsOpen((v) => !v)}
           >
-            <span className="field-label">Order Weight Range (kg)</span>
+            <div className="mode-field-row">
+              <span className="field-label">Order Weight Range (kg)</span>
+              <span className="mode-field-hint">
+                ({activeVehicleConfig.loadMin} - {activeVehicleConfig.loadMax}
+                , {activeVehicleConfig.label})
+              </span>
+            </div>
             <div className="mode-range-row">
               <input
                 type="number"
                 className="field-input mode-range-input"
                 value={loadMin}
-                min={LOAD_FLOOR}
+                min={activeVehicleConfig.loadMin}
                 max={loadMax}
-                onChange={(e) =>
-                  setLoadMin(Number(e.target.value) || LOAD_FLOOR)
-                }
+                onChange={(e) => {
+                  const raw = Number(e.target.value) || activeVehicleConfig.loadMin;
+                  setLoadMin(
+                    Math.min(
+                      Math.max(raw, activeVehicleConfig.loadMin),
+                      loadMax,
+                    ),
+                  );
+                }}
               />
               <RangeSlider
-                min={LOAD_FLOOR}
-                max={LOAD_CEIL}
+                min={activeVehicleConfig.loadMin}
+                max={activeVehicleConfig.loadMax}
                 valueMin={loadMin}
                 valueMax={loadMax}
                 onChange={(nextMin, nextMax) => {
@@ -604,10 +785,16 @@ export default function Mode({
                 className="field-input mode-range-input"
                 value={loadMax}
                 min={loadMin}
-                max={LOAD_CEIL}
-                onChange={(e) =>
-                  setLoadMax(Number(e.target.value) || LOAD_CEIL)
-                }
+                max={activeVehicleConfig.loadMax}
+                onChange={(e) => {
+                  const raw = Number(e.target.value) || activeVehicleConfig.loadMax;
+                  setLoadMax(
+                    Math.max(
+                      Math.min(raw, activeVehicleConfig.loadMax),
+                      loadMin,
+                    ),
+                  );
+                }}
               />
             </div>
             {errors.load && (
@@ -616,53 +803,6 @@ export default function Mode({
             <span className="mode-field-subtext">
               Average Weight: {averageLoad.toFixed(1)} kg
             </span>
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Advanced Settings"
-            open={advancedOpen}
-            onToggle={() => setAdvancedOpen((v) => !v)}
-          >
-            <div className="mode-field-row">
-              <span className="field-label">Distance Type</span>
-              <RiInformationLine
-                className="mode-info-icon"
-                title="Road Distance uses real routing via OSRM. Straight-Line uses haversine distance."
-              />
-            </div>
-            <select
-              className="field-input mode-select"
-              value={distanceType}
-              onChange={(e) =>
-                setDistanceType(e.target.value as "osrm" | "haversine")
-              }
-            >
-              <option value="osrm">Road Distance (OSRM)</option>
-              <option value="haversine">Straight-Line (Haversine)</option>
-            </select>
-
-            {isRidersMode && (
-              <div className="mode-field-row mode-toggle-row">
-                <div className="mode-field-row">
-                  <span className="field-label">Traffic Consideration</span>
-                  <RiInformationLine
-                    className="mode-info-icon"
-                    title="Factor live/typical traffic conditions into travel time estimates."
-                  />
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={trafficConsideration}
-                  className={`mode-toggle-switch ${
-                    trafficConsideration ? "mode-toggle-switch--on" : ""
-                  }`}
-                  onClick={() => setTrafficConsideration((v) => !v)}
-                >
-                  <span className="mode-toggle-thumb" />
-                </button>
-              </div>
-            )}
           </CollapsibleSection>
         </div>
 

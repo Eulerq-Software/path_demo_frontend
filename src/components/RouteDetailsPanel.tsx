@@ -21,6 +21,22 @@ interface RouteDetailsPanelProps {
   routingPhase?: RoadRoutesPhase;
   onReorderStops?: (vehicleId: number, newRoute: number[]) => void;
   emptyMessage?: string;
+  // The pristine, solver-reported route per vehicle — snapshotted once and
+  // never touched by a drag-and-drop reorder. Used to power the "Original
+  // Route" tab so a user who has reordered a rider's stops can still see
+  // exactly what the solver originally assigned, side by side with their
+  // what-if order.
+  originalAssignments?: RouteAssignment[];
+  // The live, currently-in-effect assignments (route + recomputed
+  // straight-line distance) that a drag-and-drop reorder writes back to.
+  // Powers the "Current" tab's stats so a reorder is reflected right there
+  // in the rider card, not just in the solver totals further down.
+  liveAssignments?: RouteAssignment[];
+  // Live on-road distance/time per vehicle, re-snapped for whatever order
+  // is currently in effect. Used for the "Current" tab's Time/ROAD line;
+  // the "Original Route" tab keeps using the frozen `roadRoutes` above.
+  liveRoadRoutes?: Record<number, RoadRouteEntry>;
+  liveRoutingPhase?: RoadRoutesPhase;
 }
 
 function vehicleLabel(vehicleId: number): string {
@@ -127,9 +143,7 @@ function RiderStopsGrid({ route, vehicleId, onReorder }: RiderStopsGridProps) {
           }}
         >
           {canDrag && (
-            <span className="rdp-stop-drag-handle" aria-hidden="true">
-              ⠿
-            </span>
+            <RiDraggable className="rdp-stop-drag-handle" aria-hidden="true" />
           )}
           <span className="rdp-stop-box-label">{stopLabel(id)}</span>
         </div>
@@ -152,24 +166,62 @@ export default function RouteDetailsPanel({
   routingPhase = "idle",
   onReorderStops,
   emptyMessage,
+  originalAssignments,
+  liveAssignments,
+  liveRoadRoutes,
+  liveRoutingPhase = "idle",
 }: RouteDetailsPanelProps) {
   // Off by default — dragging is an explicit, opt-in "what-if" mode rather
   // than something that can happen by accident while just browsing routes.
   const [dragEnabled, setDragEnabled] = useState(false);
   const canReorder = Boolean(onReorderStops);
 
+  // Per-rider "Current" vs "Original Route" tab selection. Keyed by
+  // vehicleId so each rider remembers its own choice independently. Only
+  // meaningful while dragEnabled is on — cleared whenever reordering is
+  // switched off so a rider never gets stuck silently pinned to its
+  // original view.
+  const [showOriginalFor, setShowOriginalFor] = useState<
+    Record<number, boolean>
+  >({});
+
+  const originalByVehicle = new Map(
+    (originalAssignments ?? []).map((a) => [a.vehicleId, a]),
+  );
+  const liveByVehicle = new Map(
+    (liveAssignments ?? []).map((a) => [a.vehicleId, a]),
+  );
+
+  const handleToggleDrag = () => {
+    setDragEnabled((v) => {
+      const next = !v;
+      if (!next) setShowOriginalFor({});
+      return next;
+    });
+  };
+
+  // The panel-level summary at the top always tracks the *current* state —
+  // it isn't scoped to a single rider's Current/Original tab, so it uses
+  // the live road data (falling back to the frozen snapshot only when no
+  // live data was supplied at all) rather than staying pinned to whatever
+  // the solver originally reported. Without this, this strip would keep
+  // showing the pre-reorder totals indefinitely even though every rider
+  // card and the comparison cards below have already moved on.
+  const summaryRoadRoutes = liveRoadRoutes ?? roadRoutes;
+  const summaryRoutingPhase = liveRoadRoutes ? liveRoutingPhase : routingPhase;
+
   // Only vehicles whose road path actually came back from OSRM count towards
   // the road totals — mixing in straight-line fallbacks would quietly
   // understate the drive and make the number a lie.
   const snapped = assignments
-    .map((a) => roadRoutes?.[a.vehicleId])
+    .map((a) => summaryRoadRoutes?.[a.vehicleId])
     .filter((entry): entry is RoadRouteEntry => entry?.source === "road");
 
   const totalRoadKm = snapped.reduce((s, e) => s + e.distanceKm, 0);
   const totalRoadMin = snapped.reduce((s, e) => s + e.durationMin, 0);
   const allSnapped =
     assignments.length > 0 && snapped.length === assignments.length;
-  const isRoutingBusy = routingPhase === "loading";
+  const isRoutingBusy = summaryRoutingPhase === "loading";
 
   return (
     <aside className="route-details-panel">
@@ -239,7 +291,7 @@ export default function RouteDetailsPanel({
             aria-checked={dragEnabled}
             aria-label="Toggle drag-to-reorder"
             className={`rdp-toggle ${dragEnabled ? "rdp-toggle--on" : ""}`}
-            onClick={() => setDragEnabled((v) => !v)}
+            onClick={handleToggleDrag}
           >
             <span className="rdp-toggle-thumb" />
           </button>
@@ -256,12 +308,50 @@ export default function RouteDetailsPanel({
           assignments.map((assignment, idx) => {
             const isSelected = activeVehicleIdx === idx;
             const color = routeColorFor(idx, palette);
-            const road = roadRoutes?.[assignment.vehicleId];
+            const stopCount = assignment.route.filter((id) => id !== 0).length;
+            const originalForVehicle = originalByVehicle.get(
+              assignment.vehicleId,
+            );
+            const liveForVehicle = liveByVehicle.get(assignment.vehicleId);
+            const isShowingOriginal =
+              dragEnabled &&
+              Boolean(originalForVehicle) &&
+              Boolean(showOriginalFor[assignment.vehicleId]);
+            const displayedRoute =
+              isShowingOriginal && originalForVehicle
+                ? originalForVehicle.route
+                : assignment.route;
+
+            // Stats (distance/load) and the on-road figures follow the
+            // active tab: "Original Route" always shows the frozen,
+            // solver-reported numbers; "Current" reflects whatever order
+            // is presently in effect, live distance included, so a drag
+            // shows up right here — not just in the solver totals below.
+            const statsSource =
+              isShowingOriginal && originalForVehicle
+                ? originalForVehicle
+                : (liveForVehicle ?? assignment);
+            const road = isShowingOriginal
+              ? roadRoutes?.[assignment.vehicleId]
+              : (liveRoadRoutes?.[assignment.vehicleId] ??
+                roadRoutes?.[assignment.vehicleId]);
+            const isRoadBusyForRow = isShowingOriginal
+              ? routingPhase === "loading"
+              : liveRoutingPhase === "loading";
             const detour =
               road?.source === "road"
-                ? detourPercent(road.distanceKm, assignment.totalDistance)
+                ? detourPercent(road.distanceKm, statsSource.totalDistance)
                 : null;
-            const stopCount = assignment.route.filter((id) => id !== 0).length;
+            // While a re-snap is in flight after a reorder (or on first
+            // load), the previous road figures have already been cleared
+            // but the fresh ones haven't landed yet — show a loading
+            // skeleton for that gap instead of flashing the straight-line
+            // estimate, which reads as "still the old number" for a beat.
+            // Mirrors the skeleton the solver result cards below use while
+            // their own total distance is still snapping.
+            const roadResolved =
+              road?.source === "road" || road?.source === "straight";
+            const showStatsSkeleton = isRoadBusyForRow && !roadResolved;
 
             return (
               <div
@@ -270,55 +360,117 @@ export default function RouteDetailsPanel({
                   assignment.isOverCapacity ? "rdp-row--over-capacity" : ""
                 }`}
               >
-                <button
-                  type="button"
-                  className="rdp-rider-pill"
-                  onClick={() => onSelectVehicle(isSelected ? null : idx)}
-                  aria-pressed={isSelected}
-                  aria-expanded={isSelected}
-                >
-                  <span
-                    className="rdp-rider-pill-badge"
-                    style={{ background: color }}
+                <div className="rdp-row-head">
+                  <button
+                    type="button"
+                    className="rdp-rider-pill"
+                    onClick={() => onSelectVehicle(isSelected ? null : idx)}
+                    aria-pressed={isSelected}
+                    aria-expanded={isSelected}
                   >
-                    {String(idx + 1).padStart(2, "0")}
-                  </span>
-                  <span className="rdp-rider-pill-label">
-                    {vehicleLabel(assignment.vehicleId)}
-                  </span>
-                  {!isSelected && (
-                    <span className="rdp-rider-pill-meta">
-                      {stopCount} stop{stopCount === 1 ? "" : "s"}
+                    <span
+                      className="rdp-rider-pill-badge"
+                      style={{ background: color }}
+                    >
+                      {String(idx + 1).padStart(2, "0")}
                     </span>
+                    <span className="rdp-rider-pill-label">
+                      {vehicleLabel(assignment.vehicleId)}
+                    </span>
+                    {!isSelected && (
+                      <span className="rdp-rider-pill-meta">
+                        {stopCount} stop{stopCount === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {assignment.isOverCapacity && (
+                      <RiAlertLine
+                        className="rdp-rider-pill-alert"
+                        title="Over capacity"
+                      />
+                    )}
+                  </button>
+
+                  {/* Current / Original Route tabs — only meaningful once
+                      this rider is expanded and reordering is switched on,
+                      and only when the solver actually reported an
+                      original route to compare against. Placed here, in
+                      the same row as the rider id, top-right of the row. */}
+                  {isSelected && dragEnabled && originalForVehicle && (
+                    <div className="rdp-stops-tabs rdp-stops-tabs--inline">
+                      <button
+                        type="button"
+                        className={`rdp-stops-tab ${
+                          !isShowingOriginal ? "rdp-stops-tab--active" : ""
+                        }`}
+                        onClick={() =>
+                          setShowOriginalFor((prev) => ({
+                            ...prev,
+                            [assignment.vehicleId]: false,
+                          }))
+                        }
+                      >
+                        Current
+                      </button>
+                      <button
+                        type="button"
+                        className={`rdp-stops-tab ${
+                          isShowingOriginal ? "rdp-stops-tab--active" : ""
+                        }`}
+                        onClick={() =>
+                          setShowOriginalFor((prev) => ({
+                            ...prev,
+                            [assignment.vehicleId]: true,
+                          }))
+                        }
+                      >
+                        Original Route
+                      </button>
+                    </div>
                   )}
-                  {assignment.isOverCapacity && (
-                    <RiAlertLine
-                      className="rdp-rider-pill-alert"
-                      title="Over capacity"
-                    />
-                  )}
-                  <RiArrowDownSLine className="rdp-rider-pill-chevron" />
-                </button>
+
+                  <button
+                    type="button"
+                    className="rdp-rider-chevron-btn"
+                    onClick={() => onSelectVehicle(isSelected ? null : idx)}
+                    aria-label={isSelected ? "Collapse rider" : "Expand rider"}
+                  >
+                    <RiArrowDownSLine className="rdp-rider-pill-chevron" />
+                  </button>
+                </div>
 
                 {isSelected && (
                   <div className="rdp-expanded-body">
                     <div className="rdp-rider-stats">
                       <div className="rdp-rider-stat">
                         <span className="rdp-rider-stat-label">Distance</span>
-                        <span className="rdp-rider-stat-value">
-                          {road?.source === "road"
-                            ? formatKm(road.distanceKm)
-                            : formatKm(assignment.totalDistance)}{" "}
-                          km
-                        </span>
+                        {showStatsSkeleton ? (
+                          <span
+                            className="rdp-rider-stat-skeleton"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span className="rdp-rider-stat-value">
+                            {road?.source === "road"
+                              ? formatKm(road.distanceKm)
+                              : formatKm(statsSource.totalDistance)}{" "}
+                            km
+                          </span>
+                        )}
                       </div>
                       <div className="rdp-rider-stat">
                         <span className="rdp-rider-stat-label">Time</span>
-                        <span className="rdp-rider-stat-value">
-                          {road?.source === "road"
-                            ? formatMinutes(road.durationMin)
-                            : "—"}
-                        </span>
+                        {showStatsSkeleton ? (
+                          <span
+                            className="rdp-rider-stat-skeleton"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span className="rdp-rider-stat-value">
+                            {road?.source === "road"
+                              ? formatMinutes(road.durationMin)
+                              : "—"}
+                          </span>
+                        )}
                       </div>
                       <div className="rdp-rider-stat">
                         <span className="rdp-rider-stat-label">Stops</span>
@@ -335,34 +487,47 @@ export default function RouteDetailsPanel({
                               : ""
                           }`}
                         >
-                          {formatLoad(assignment.totalLoad)}/
+                          {formatLoad(statsSource.totalLoad)}/
                           {formatLoad(assignment.capacity)} kg
                         </span>
                       </div>
                     </div>
 
-                    <RiderStopsGrid
-                      route={assignment.route}
-                      vehicleId={assignment.vehicleId}
-                      onReorder={dragEnabled ? onReorderStops : undefined}
-                    />
+                    <div className="rdp-stops-section">
+                      <RiderStopsGrid
+                        route={displayedRoute}
+                        vehicleId={assignment.vehicleId}
+                        onReorder={
+                          dragEnabled && !isShowingOriginal
+                            ? onReorderStops
+                            : undefined
+                        }
+                      />
 
-                    {stopCount > 1 && canReorder && (
-                      <span className="rdp-drag-hint">
-                        {dragEnabled ? (
-                          <>
-                            Drag a stop to reorder — see the effect on the map
-                            and in the solver comparison below. These figures
-                            stay as the solver reported them.
-                          </>
-                        ) : (
-                          <>
-                            Reordering is off — turn on "Reorder Stops" above
-                            to drag stops here.
-                          </>
-                        )}
-                      </span>
-                    )}
+                      {stopCount > 1 && canReorder && (
+                        <span className="rdp-drag-hint">
+                          {isShowingOriginal ? (
+                            <>
+                              This is the order the solver originally
+                              assigned — fixed, and not draggable. Switch
+                              back to "Current" to keep testing a different
+                              order.
+                            </>
+                          ) : dragEnabled ? (
+                            <>
+                              Drag a stop to reorder — see the effect on the
+                              map and in the solver comparison below. These
+                              figures stay as the solver reported them.
+                            </>
+                          ) : (
+                            <>
+                              Reordering is off — turn on "Reorder Stops"
+                              above to drag stops here.
+                            </>
+                          )}
+                        </span>
+                      )}
+                    </div>
 
                     {/* On-road figures, kept visually distinct from the solver's
                         own straight-line numbers below so the two are never
@@ -398,7 +563,7 @@ export default function RouteDetailsPanel({
                     <div className="rdp-row-stats">
                       <span>
                         Direct:{" "}
-                        <strong>{formatKm(assignment.totalDistance)} km</strong>
+                        <strong>{formatKm(statsSource.totalDistance)} km</strong>
                       </span>
                       <span className="rdp-row-sep">·</span>
                       <span
@@ -406,7 +571,7 @@ export default function RouteDetailsPanel({
                       >
                         Load:{" "}
                         <strong>
-                          {formatLoad(assignment.totalLoad)} /{" "}
+                          {formatLoad(statsSource.totalLoad)} /{" "}
                           {formatLoad(assignment.capacity)} kg
                         </strong>
                       </span>

@@ -31,7 +31,34 @@ export const SOLVER_LABELS: Record<BackendSolverName, string> = {
   pyvrp: "EulerQ",
 };
 
-const FAILURE_STATUSES = new Set(["infeasible", "error", "failed", "timeout"]);
+const FAILURE_STATUSES = new Set([
+  "infeasible",
+  "incomplete",
+  "error",
+  "failed",
+  "timeout",
+]);
+
+// Plain-English detail per failure status, so "incomplete" (some orders
+// couldn't be assigned) reads differently from "infeasible" (no solution
+// exists at all) instead of both showing the same raw status string.
+const FAILURE_STATUS_DETAIL: Partial<Record<string, string>> = {
+  infeasible: "found no feasible solution for this instance.",
+  incomplete: "could not assign all orders within the given constraints.",
+  error: "hit an internal error while solving.",
+  failed: "failed to solve this instance.",
+  timeout: "timed out before finishing.",
+};
+
+function describeSolverFailure(
+  solver: BackendSolverName,
+  status: string,
+): string {
+  const detail = FAILURE_STATUS_DETAIL[status];
+  return detail
+    ? `${SOLVER_LABELS[solver]} ${detail}`
+    : `${SOLVER_LABELS[solver]} returned status "${status}".`;
+}
 
 export class SolveApiError extends Error {
   constructor(
@@ -159,7 +186,7 @@ export async function solveCVRP(
 
   if (FAILURE_STATUSES.has(data.status)) {
     throw new SolveApiError(
-      `${SOLVER_LABELS[solver]} returned status "${data.status}".`,
+      describeSolverFailure(solver, data.status),
       "SOLVER_ERROR",
       solver,
     );
@@ -216,7 +243,7 @@ export async function solveCVRPSizing(
 
   if (FAILURE_STATUSES.has(data.status)) {
     throw new SolveApiError(
-      `${SOLVER_LABELS[solver]} returned status "${data.status}".`,
+      describeSolverFailure(solver, data.status),
       "SOLVER_ERROR",
       solver,
     );

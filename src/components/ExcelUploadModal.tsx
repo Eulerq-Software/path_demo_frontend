@@ -1,16 +1,12 @@
 import React, { useState, useRef, DragEvent, ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import {
-  IoCloudUploadOutline,
-  IoCheckmarkCircle,
-  IoAlertCircleOutline,
-  IoDocumentOutline,
-  IoCloseOutline,
-} from "react-icons/io5";
-import {
   RiFileExcel2Line,
   RiFileLine,
   RiUploadCloud2Line,
+  RiCheckboxCircleFill,
+  RiErrorWarningLine,
+  RiCloseLine,
 } from "react-icons/ri";
 import "../Styling/ExcelUploadModal.css";
 
@@ -187,7 +183,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="eum-header">
           <div className="eum-header-icon" aria-hidden="true">
-            <IoCloudUploadOutline />
+            <RiUploadCloud2Line />
           </div>
           <div className="eum-header-text">
             <h3>Upload Data File</h3>
@@ -199,7 +195,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
             disabled={isParsing}
             aria-label="Close upload modal"
           >
-            <IoCloseOutline size={16} />
+            <RiCloseLine size={16} />
           </button>
         </div>
 
@@ -208,7 +204,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
           <div className="eum-body">
             <div className="eum-success">
               <div className="eum-success-icon">
-                <IoCheckmarkCircle />
+                <RiCheckboxCircleFill />
               </div>
               <p className="eum-success-title">File uploaded successfully!</p>
               <p className="eum-success-sub">{file?.name}</p>
@@ -282,7 +278,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                 <div className="eum-divider">SELECTED FILE</div>
                 <div className="eum-file-preview">
                   <div className="eum-file-preview-icon">
-                    <IoDocumentOutline />
+                    <RiFileLine />
                   </div>
                   <div className="eum-file-preview-meta">
                     <span className="eum-file-preview-name">{file.name}</span>
@@ -294,7 +290,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                     {isParsing ? (
                       <span className="eum-spinner" aria-label="Parsing…" />
                     ) : (
-                      <IoCheckmarkCircle size={18} className="eum-check-icon" />
+                      <RiCheckboxCircleFill size={18} className="eum-check-icon" />
                     )}
                     {!isParsing && (
                       <button
@@ -302,7 +298,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                         onClick={clearFile}
                         aria-label="Remove selected file"
                       >
-                        <IoCloseOutline size={13} />
+                        <RiCloseLine size={13} />
                       </button>
                     )}
                   </div>
@@ -313,7 +309,7 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
             {/* Validation error */}
             {validationError && !isParsing && (
               <div className="eum-error" role="alert">
-                <IoAlertCircleOutline size={14} />
+                <RiErrorWarningLine size={14} />
                 <span>{validationError}</span>
               </div>
             )}

@@ -698,7 +698,12 @@ select:focus-visible {
    shape as the finished card so nothing reflows when it pops in. */
 .result-card--pending {
   border-style: dashed;
-  border-color: var(--border2);
+  border-color: rgba(253, 186, 116, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(253, 186, 116, 0.05) 0%,
+    var(--surface) 60%
+  );
 }
 
 .result-solving-badge {
@@ -709,7 +714,7 @@ select:focus-visible {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text3);
+  color: #fdba74;
   font-family: "JetBrains Mono", monospace;
 }
 
@@ -733,6 +738,16 @@ select:focus-visible {
   );
   background-size: 200% 100%;
   animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+
+.result-card--pending .result-stat-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(253, 186, 116, 0.16) 25%,
+    rgba(253, 186, 116, 0.32) 50%,
+    rgba(253, 186, 116, 0.16) 75%
+  );
+  background-size: 200% 100%;
 }
 
 @keyframes skeletonShimmer {
@@ -897,10 +912,20 @@ select:focus-visible {
   transform: translateY(1px);
 }
 
+.btn-view-routes:disabled {
+  cursor: not-allowed;
+}
+
 .btn-view-routes--active {
   background: rgba(16, 224, 161, 0.1);
   border-color: rgba(16, 224, 161, 0.4);
   color: var(--accent);
+}
+
+.btn-view-routes--pending {
+  background: rgba(253, 186, 116, 0.1);
+  border-color: rgba(253, 186, 116, 0.35);
+  color: #fdba74;
 }
 
 /* ── Responsive 768 ────────────────────────────────────────── */

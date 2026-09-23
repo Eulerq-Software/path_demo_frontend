@@ -306,7 +306,8 @@
     background-color 0.15s;
 }
 
-.rdp-row:has(.rdp-rider-pill:hover) {
+.rdp-row:has(.rdp-rider-pill:hover),
+.rdp-row:has(.rdp-rider-chevron-btn:hover) {
   background: var(--rdp-bg-row-hover);
   border-color: var(--rdp-border);
 }
@@ -325,18 +326,41 @@
    The minimal, at-rest state of a rider row — a colour badge, the rider
    id, and a chevron. Everything else (sequence, stats, drag grid) only
    exists once this rider is expanded. */
+.rdp-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+}
+
 .rdp-rider-pill {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
   font: inherit;
   color: inherit;
   text-align: left;
+}
+
+/* Separate hit target for collapse/expand now that the pill no longer
+   spans the full row (the Current/Original tabs sit between the two). */
+.rdp-rider-chevron-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
 }
 
 .rdp-rider-pill-badge {
@@ -475,6 +499,102 @@
   color: var(--rdp-danger);
 }
 
+/* Shown in place of Distance/Time while a fresh on-road figure is still
+   being fetched for the row's current stop order (right after a reorder,
+   or on first load) — avoids flashing the straight-line estimate for a
+   beat before the real number lands. Same shimmer treatment as the
+   solver result cards' own pending total-distance skeleton. */
+.rdp-rider-stat-skeleton {
+  display: block;
+  width: 70%;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--rdp-border) 25%,
+    var(--rdp-border-soft) 50%,
+    var(--rdp-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: rdpStatSkeletonShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes rdpStatSkeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ── Stops section wrapper: tabs + grid ───────────────────────── */
+.rdp-stops-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* "Current" / "Original Route" tab switcher — sits in the top-right
+   corner of a rider's stop sequence once reordering is turned on, so the
+   solver's original assignment is never more than a click away while
+   still keeping the drag-to-reorder sandbox front and center. */
+.rdp-stops-tabs {
+  display: flex;
+  align-self: flex-end;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--rdp-bg-row);
+  border: 1px solid var(--rdp-border-soft);
+}
+
+/* Inline variant: sits in the rider-id row itself (top-right corner of the
+   row), between the rider pill and the collapse chevron, so it stays
+   compact and never pushes the chevron out of view on the narrower panel
+   widths. */
+.rdp-stops-tabs--inline {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.rdp-stops-tabs--inline .rdp-stops-tab {
+  padding: 3px 6px;
+  font-size: 8.5px;
+}
+
+.rdp-stops-tab {
+  border: none;
+  background: transparent;
+  color: var(--rdp-text-faint);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.rdp-stops-tab:hover {
+  color: var(--rdp-text-soft);
+}
+
+.rdp-stops-tab--active {
+  background: var(--rdp-teal);
+  color: #04121f;
+}
+
+.rdp-stops-tab--active:hover {
+  color: #04121f;
+}
+
 /* ── Stop grid: depot → stop boxes → depot, drag to reorder ───── */
 .rdp-stops-grid {
   display: grid;
@@ -532,8 +652,9 @@
 }
 
 .rdp-stop-drag-handle {
-  font-size: 9px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
   color: var(--rdp-text-faint);
 }
 
@@ -693,5 +814,10 @@
   .rdp-road-pending-dot {
     animation: none;
     opacity: 0.7;
+  }
+
+  .rdp-rider-stat-skeleton {
+    animation: none;
+    background-position: 0 0;
   }
 }
